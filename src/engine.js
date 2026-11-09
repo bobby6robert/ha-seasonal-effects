@@ -8,7 +8,7 @@
  * The engine finds that card in the current dashboard and follows its settings.
  */
 
-const SE_VERSION = '1.1.0';
+const SE_VERSION = '1.2.0';
 
 const SE_TEXT = {
   en: {
@@ -58,9 +58,9 @@ const SE_TEXT = {
 const SE_EFFECTS = ['halloween', 'christmas', 'newyear', 'valentine', 'easter', 'birthday', 'dayoff'];
 
 /** Occasions in priority order (the first active one picks the animation). */
-const SE_OCCASIONS = ['birthday_home', 'nameday', 'newyear', 'birthday_other', 'christmas', 'easter', 'valentine', 'halloween', 'dayoff'];
+const SE_OCCASIONS = ['birthday_home', 'nameday', 'custom', 'newyear', 'birthday_other', 'christmas', 'easter', 'valentine', 'halloween', 'dayoff'];
 const SE_SCENE_OF = {
-  birthday_home: 'birthday', nameday: 'birthday', birthday_other: 'birthday', newyear: 'newyear', christmas: 'christmas',
+  birthday_home: 'birthday', nameday: 'birthday', custom: 'valentine', birthday_other: 'birthday', newyear: 'newyear', christmas: 'christmas',
   easter: 'easter', valentine: 'valentine', halloween: 'halloween', dayoff: 'dayoff',
 };
 /** Optional parts of every scene (each can be switched off per occasion). */
@@ -92,6 +92,7 @@ function seOccDefaults() {
   return {
     birthday_home: base(d(true, '06:30', '22:00', 0, 0), d(true, '06:30', '22:00', 120, 3), 20),
     nameday: base(d(true, '06:30', '22:00', 0, 0), d(true, '06:30', '22:00', 120, 3), 20),
+    custom: base(d(true, '06:30', '22:00', 0, 0), d(true, '06:30', '22:00', 120, 3), 20),
     birthday_other: base(d(true, '06:30', '10:00', 60, 0), d(true, '06:30', '22:00', 30, 0), 12),
     newyear: base(d(true, '06:30', '22:00', 300, 2), d(true, '06:30', '22:00', 60, 0), 16),
     christmas: base(d(true, '06:30', '22:00', 60, 3), d(true, '06:30', '22:00', 30, 0), 10),
@@ -103,6 +104,16 @@ function seOccDefaults() {
   };
 }
 const SE_QUIET_DEFAULT = () => ({ on: true, from: '22:00', to: '06:30' });
+/** When the seasonal effects run (MM-DD, no year). */
+const SE_DATES_DEFAULT = (cfg) => ({
+  halloween: { from: '10-25', to: '11-01' },
+  christmas: { from: (cfg && /^\d{2}-\d{2}$/.test(cfg.christmas_start || '') ? cfg.christmas_start : '12-06'), to: '01-06' },
+  valentine: { from: '02-14', to: '02-14' },
+  newyear: { hour: 18 },
+  easter: { before: 1, after: 1 },
+});
+/** Is MM-DD `d` inside from–to (wrapping over New Year when from > to)? */
+const seInDates = (d, from, to) => (from <= to ? d >= from && d <= to : d >= from || d <= to);
 
 /** Full settings with defaults filled in (also maps the 1.0 `effects` switches). */
 function seSettings(cfg) {
@@ -121,8 +132,16 @@ function seSettings(cfg) {
     if (s.on === undefined && old[scene === 'dayoff' ? 'dayoff' : scene] === false) o.on = false;
     occ[k] = o;
   }
+  const dd = SE_DATES_DEFAULT(cfg);
+  const dates = {};
+  for (const k of Object.keys(dd)) dates[k] = Object.assign({}, dd[k], (cfg.dates || {})[k] || {});
+  const custom = (Array.isArray(cfg.custom_occasions) ? cfg.custom_occasions : [])
+    .filter((c) => c && c.name && /^\d{2}-\d{2}$/.test(c.date || ''))
+    .map((c) => ({ name: String(c.name), date: c.date, effect: SE_EFFECTS.includes(c.effect) ? c.effect : 'valentine', text: c.text ? String(c.text) : '' }));
   return {
     occasions: occ,
+    dates,
+    custom,
     quiet: Object.assign(SE_QUIET_DEFAULT(), cfg.quiet || {}),
     public_holidays: cfg.public_holidays || (seLangRaw(cfg) === 'pl' ? 'pl' : 'none'),
     exclude_views: Array.isArray(cfg.exclude_views) ? cfg.exclude_views : [],
@@ -280,7 +299,7 @@ function seInWindow(t, from, to) {
         const who = t.replace(/\s*(urodziny|urodzin\w*|birthday|bday)\s*/i, ' ').replace(/['’]s\b/i, '').replace(/\s+/g, ' ').trim();
         const fam = familyMatch(family, who);
         if (fam) add('birthday_home', { name: fam }); else add('birthday_other', { name: who || '' });
-      } else if (/rocznic|ślub|slub|anniversary|wedding/i.test(t)) add('valentine', { text: '💍 ' + t });
+      } else if (/rocznic|(^|\s)(ślub|slub)(u|em|y)?(\s|$)|anniversary|wedding/i.test(t)) add('valentine', { text: '💍 ' + t });
       else if (/imienin|name ?day/i.test(t)) {
         const who = t.replace(/\s*(imieniny|imienin\w*|name ?day)\s*/i, ' ').replace(/\s+/g, ' ').trim();
         const fam = familyMatch(family, who); if (fam) add('nameday', { name: fam });
@@ -302,15 +321,17 @@ function seInWindow(t, from, to) {
     if (hol) add('dayoff', { text: (T.holidays && T.holidays[hol]) || '' });
     if (S.occasions.dayoff.weekends && (now.getDay() === 0 || now.getDay() === 6) && !out.dayoff) add('dayoff', { text: T.weekend });
 
-    const xStart = mmdd(cfg.christmas_start) || '12-06';
-    if ((today === '12-31' && now.getHours() >= 18) || today === '01-01') add('newyear', { text: today === '01-01' ? fmt(T.ny, { y: now.getFullYear() }) : T.nye });
-    if (today >= '10-25' && today <= '11-01') add('halloween', { text: today === '10-31' ? T.trick : '' });
-    if (today >= xStart || today <= '01-06') add('christmas', { text: today === '12-06' ? T.nicholas : (today >= '12-24' && today <= '12-26') ? T.xmas : '' });
-    if (today === '02-14') add('valentine', { text: T.valentine });
+    const D = S.dates;
+    const nyHour = Math.min(23, Math.max(0, Number(D.newyear.hour) || 0));
+    if ((today === '12-31' && now.getHours() >= nyHour) || today === '01-01') add('newyear', { text: today === '01-01' ? fmt(T.ny, { y: now.getFullYear() }) : T.nye });
+    if (seInDates(today, D.halloween.from, D.halloween.to)) add('halloween', { text: today === '10-31' ? T.trick : '' });
+    if (seInDates(today, D.christmas.from, D.christmas.to)) add('christmas', { text: today === '12-06' ? T.nicholas : (today >= '12-24' && today <= '12-26') ? T.xmas : '' });
+    if (seInDates(today, D.valentine.from, D.valentine.to)) add('valentine', { text: today === '02-14' ? T.valentine : '' });
     const e = easterDate(now.getFullYear());
-    const from = new Date(e); from.setDate(e.getDate() - 1);
-    const to = new Date(e); to.setDate(e.getDate() + 1); to.setHours(23, 59, 59);
+    const from = new Date(e); from.setDate(e.getDate() - Math.max(0, Number(D.easter.before) || 0)); from.setHours(0, 0, 0, 0);
+    const to = new Date(e); to.setDate(e.getDate() + Math.max(0, Number(D.easter.after) || 0)); to.setHours(23, 59, 59);
     if (now >= from && now <= to) add('easter', { text: T.easter });
+    for (const c of S.custom) if (c.date === today) { add('custom', { text: c.text || ('✨ ' + c.name) }); if (!out.custom.scene) out.custom.scene = c.effect; }
 
     // texts
     const names = (arr) => [...new Set(arr.filter(Boolean))].join(T.and);
@@ -419,7 +440,7 @@ function seInWindow(t, from, to) {
       clearTimeout(endTimer);
       if (left < 15000) endTimer = setTimeout(check, Math.max(50, left + 50));
     }
-    return { effect: SE_SCENE_OF[lead.key], key: lead.key, text, bannerFor, params: { count: lead.o.count, opacity: lead.o.opacity, speed: lead.o.speed, extras: lead.o.extras }, keys: active.map((a) => a.key) };
+    return { effect: lead.key === 'custom' ? (occ.custom.scene || 'valentine') : SE_SCENE_OF[lead.key], key: lead.key, text, bannerFor, params: { count: lead.o.count, opacity: lead.o.opacity, speed: lead.o.speed, extras: lead.o.extras }, keys: active.map((a) => a.key) };
   }
 
   /** Should the "day off" chip (used by dashboards) be visible now? */

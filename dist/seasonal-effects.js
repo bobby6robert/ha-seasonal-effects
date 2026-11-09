@@ -1,4 +1,4 @@
-/*! Seasonal Effects for Home Assistant v1.1.0 | MIT | https://github.com/bobby6robert/ha-seasonal-effects */
+/*! Seasonal Effects for Home Assistant v1.2.0 | MIT | https://github.com/bobby6robert/ha-seasonal-effects */
 /*
  * Seasonal Effects for Home Assistant – overlay engine
  * Animated seasonal effects drawn on top of Lovelace dashboards:
@@ -9,7 +9,7 @@
  * The engine finds that card in the current dashboard and follows its settings.
  */
 
-const SE_VERSION = '1.1.0';
+const SE_VERSION = '1.2.0';
 
 const SE_TEXT = {
   en: {
@@ -59,9 +59,9 @@ const SE_TEXT = {
 const SE_EFFECTS = ['halloween', 'christmas', 'newyear', 'valentine', 'easter', 'birthday', 'dayoff'];
 
 /** Occasions in priority order (the first active one picks the animation). */
-const SE_OCCASIONS = ['birthday_home', 'nameday', 'newyear', 'birthday_other', 'christmas', 'easter', 'valentine', 'halloween', 'dayoff'];
+const SE_OCCASIONS = ['birthday_home', 'nameday', 'custom', 'newyear', 'birthday_other', 'christmas', 'easter', 'valentine', 'halloween', 'dayoff'];
 const SE_SCENE_OF = {
-  birthday_home: 'birthday', nameday: 'birthday', birthday_other: 'birthday', newyear: 'newyear', christmas: 'christmas',
+  birthday_home: 'birthday', nameday: 'birthday', custom: 'valentine', birthday_other: 'birthday', newyear: 'newyear', christmas: 'christmas',
   easter: 'easter', valentine: 'valentine', halloween: 'halloween', dayoff: 'dayoff',
 };
 /** Optional parts of every scene (each can be switched off per occasion). */
@@ -93,6 +93,7 @@ function seOccDefaults() {
   return {
     birthday_home: base(d(true, '06:30', '22:00', 0, 0), d(true, '06:30', '22:00', 120, 3), 20),
     nameday: base(d(true, '06:30', '22:00', 0, 0), d(true, '06:30', '22:00', 120, 3), 20),
+    custom: base(d(true, '06:30', '22:00', 0, 0), d(true, '06:30', '22:00', 120, 3), 20),
     birthday_other: base(d(true, '06:30', '10:00', 60, 0), d(true, '06:30', '22:00', 30, 0), 12),
     newyear: base(d(true, '06:30', '22:00', 300, 2), d(true, '06:30', '22:00', 60, 0), 16),
     christmas: base(d(true, '06:30', '22:00', 60, 3), d(true, '06:30', '22:00', 30, 0), 10),
@@ -104,6 +105,16 @@ function seOccDefaults() {
   };
 }
 const SE_QUIET_DEFAULT = () => ({ on: true, from: '22:00', to: '06:30' });
+/** When the seasonal effects run (MM-DD, no year). */
+const SE_DATES_DEFAULT = (cfg) => ({
+  halloween: { from: '10-25', to: '11-01' },
+  christmas: { from: (cfg && /^\d{2}-\d{2}$/.test(cfg.christmas_start || '') ? cfg.christmas_start : '12-06'), to: '01-06' },
+  valentine: { from: '02-14', to: '02-14' },
+  newyear: { hour: 18 },
+  easter: { before: 1, after: 1 },
+});
+/** Is MM-DD `d` inside from–to (wrapping over New Year when from > to)? */
+const seInDates = (d, from, to) => (from <= to ? d >= from && d <= to : d >= from || d <= to);
 
 /** Full settings with defaults filled in (also maps the 1.0 `effects` switches). */
 function seSettings(cfg) {
@@ -122,8 +133,16 @@ function seSettings(cfg) {
     if (s.on === undefined && old[scene === 'dayoff' ? 'dayoff' : scene] === false) o.on = false;
     occ[k] = o;
   }
+  const dd = SE_DATES_DEFAULT(cfg);
+  const dates = {};
+  for (const k of Object.keys(dd)) dates[k] = Object.assign({}, dd[k], (cfg.dates || {})[k] || {});
+  const custom = (Array.isArray(cfg.custom_occasions) ? cfg.custom_occasions : [])
+    .filter((c) => c && c.name && /^\d{2}-\d{2}$/.test(c.date || ''))
+    .map((c) => ({ name: String(c.name), date: c.date, effect: SE_EFFECTS.includes(c.effect) ? c.effect : 'valentine', text: c.text ? String(c.text) : '' }));
   return {
     occasions: occ,
+    dates,
+    custom,
     quiet: Object.assign(SE_QUIET_DEFAULT(), cfg.quiet || {}),
     public_holidays: cfg.public_holidays || (seLangRaw(cfg) === 'pl' ? 'pl' : 'none'),
     exclude_views: Array.isArray(cfg.exclude_views) ? cfg.exclude_views : [],
@@ -281,7 +300,7 @@ function seInWindow(t, from, to) {
         const who = t.replace(/\s*(urodziny|urodzin\w*|birthday|bday)\s*/i, ' ').replace(/['’]s\b/i, '').replace(/\s+/g, ' ').trim();
         const fam = familyMatch(family, who);
         if (fam) add('birthday_home', { name: fam }); else add('birthday_other', { name: who || '' });
-      } else if (/rocznic|ślub|slub|anniversary|wedding/i.test(t)) add('valentine', { text: '💍 ' + t });
+      } else if (/rocznic|(^|\s)(ślub|slub)(u|em|y)?(\s|$)|anniversary|wedding/i.test(t)) add('valentine', { text: '💍 ' + t });
       else if (/imienin|name ?day/i.test(t)) {
         const who = t.replace(/\s*(imieniny|imienin\w*|name ?day)\s*/i, ' ').replace(/\s+/g, ' ').trim();
         const fam = familyMatch(family, who); if (fam) add('nameday', { name: fam });
@@ -303,15 +322,17 @@ function seInWindow(t, from, to) {
     if (hol) add('dayoff', { text: (T.holidays && T.holidays[hol]) || '' });
     if (S.occasions.dayoff.weekends && (now.getDay() === 0 || now.getDay() === 6) && !out.dayoff) add('dayoff', { text: T.weekend });
 
-    const xStart = mmdd(cfg.christmas_start) || '12-06';
-    if ((today === '12-31' && now.getHours() >= 18) || today === '01-01') add('newyear', { text: today === '01-01' ? fmt(T.ny, { y: now.getFullYear() }) : T.nye });
-    if (today >= '10-25' && today <= '11-01') add('halloween', { text: today === '10-31' ? T.trick : '' });
-    if (today >= xStart || today <= '01-06') add('christmas', { text: today === '12-06' ? T.nicholas : (today >= '12-24' && today <= '12-26') ? T.xmas : '' });
-    if (today === '02-14') add('valentine', { text: T.valentine });
+    const D = S.dates;
+    const nyHour = Math.min(23, Math.max(0, Number(D.newyear.hour) || 0));
+    if ((today === '12-31' && now.getHours() >= nyHour) || today === '01-01') add('newyear', { text: today === '01-01' ? fmt(T.ny, { y: now.getFullYear() }) : T.nye });
+    if (seInDates(today, D.halloween.from, D.halloween.to)) add('halloween', { text: today === '10-31' ? T.trick : '' });
+    if (seInDates(today, D.christmas.from, D.christmas.to)) add('christmas', { text: today === '12-06' ? T.nicholas : (today >= '12-24' && today <= '12-26') ? T.xmas : '' });
+    if (seInDates(today, D.valentine.from, D.valentine.to)) add('valentine', { text: today === '02-14' ? T.valentine : '' });
     const e = easterDate(now.getFullYear());
-    const from = new Date(e); from.setDate(e.getDate() - 1);
-    const to = new Date(e); to.setDate(e.getDate() + 1); to.setHours(23, 59, 59);
+    const from = new Date(e); from.setDate(e.getDate() - Math.max(0, Number(D.easter.before) || 0)); from.setHours(0, 0, 0, 0);
+    const to = new Date(e); to.setDate(e.getDate() + Math.max(0, Number(D.easter.after) || 0)); to.setHours(23, 59, 59);
     if (now >= from && now <= to) add('easter', { text: T.easter });
+    for (const c of S.custom) if (c.date === today) { add('custom', { text: c.text || ('✨ ' + c.name) }); if (!out.custom.scene) out.custom.scene = c.effect; }
 
     // texts
     const names = (arr) => [...new Set(arr.filter(Boolean))].join(T.and);
@@ -420,7 +441,7 @@ function seInWindow(t, from, to) {
       clearTimeout(endTimer);
       if (left < 15000) endTimer = setTimeout(check, Math.max(50, left + 50));
     }
-    return { effect: SE_SCENE_OF[lead.key], key: lead.key, text, bannerFor, params: { count: lead.o.count, opacity: lead.o.opacity, speed: lead.o.speed, extras: lead.o.extras }, keys: active.map((a) => a.key) };
+    return { effect: lead.key === 'custom' ? (occ.custom.scene || 'valentine') : SE_SCENE_OF[lead.key], key: lead.key, text, bannerFor, params: { count: lead.o.count, opacity: lead.o.opacity, speed: lead.o.speed, extras: lead.o.extras }, keys: active.map((a) => a.key) };
   }
 
   /** Should the "day off" chip (used by dashboards) be visible now? */
@@ -1070,11 +1091,17 @@ const SE_SET_UI = {
     hidden: 'hidden', allDay: 'all day', min: 'min', s: 's',
     save: 'Save', cancel: 'Cancel', unsaved: 'Save the changes?', saved: 'Saved ✓', saveErr: 'Could not save: ',
     adminOnly: 'Only an administrator can save these settings.',
+    tabs: { dates: 'Dates', time: 'Time and devices', look: 'How effects look' },
+    datesTitle: 'When effects are shown', datesHint: 'Dates without a year (day.month) – the same every year.',
+    nyFrom: 'New Year\'s Eve from', hour: 'h', easterDays: 'Easter: days before / after', datesNote: 'Birthdays and name days come from your calendars and family list; days off from the school calendar and public holidays.',
+    customTitle: 'Your own occasions', customNone: 'No own occasions yet.', addTitle: 'Add an occasion', cName: 'Name', cDate: 'Date (dd.mm)',
+    cEffect: 'Effect', cText: 'Banner text (optional)', cAdd: '+ Add occasion', cDel: 'Remove', cBad: 'Enter a name and a date as dd.mm.',
+    eff: { valentine: 'Valentine\'s (hearts)', birthday: 'Birthday (balloons)', newyear: 'New Year (fireworks)', dayoff: 'Day off (sun)', christmas: 'Christmas (snow)', easter: 'Easter (flowers)', halloween: 'Halloween (bats)' },
     hint: 'Animation starts when the time window begins (or when the dashboard is opened inside it). "Whole time" keeps it on for the whole window.',
     names: {
       birthday_home: '🎂 Family birthdays', nameday: '🎉 Family name days', birthday_other: '🎈 Other birthdays (calendar)',
       newyear: '🎆 New Year\'s Eve', christmas: '🎄 Christmas', easter: '🐣 Easter', valentine: '💘 Valentine\'s Day and anniversaries',
-      halloween: '🎃 Halloween', dayoff: '🌞 Day off',
+      halloween: '🎃 Halloween', dayoff: '🌞 Day off', custom: '⭐ Your own occasions',
     },
     ex: {
       moon: 'Moon', fog: 'Fog', eyes: 'Eyes in the dark', lightning: 'Lightning', bats: 'Bats', pumpkins: 'Pumpkins', leaves: 'Leaves', ghosts: 'Ghosts', spider: 'Spider',
@@ -1096,11 +1123,17 @@ const SE_SET_UI = {
     hidden: 'ukryta', allDay: 'cały dzień', min: 'min', s: 's',
     save: 'Zapisz', cancel: 'Anuluj', unsaved: 'Zapisać zmiany?', saved: 'Zapisano ✓', saveErr: 'Nie udało się zapisać: ',
     adminOnly: 'Te ustawienia może zapisać tylko administrator.',
+    tabs: { dates: 'Daty', time: 'Czas i tablet', look: 'Wygląd efektów' },
+    datesTitle: 'Kiedy pokazywać efekty', datesHint: 'Daty bez roku (dzień.miesiąc) – co roku tak samo.',
+    nyFrom: 'Sylwester od godziny', hour: '', easterDays: 'Wielkanoc: dni przed / po', datesNote: 'Urodziny i imieniny biorą się z kalendarza i listy rodziny, a dni wolne z kalendarza szkoły i świąt państwowych.',
+    customTitle: 'Własne okazje', customNone: 'Nie ma jeszcze własnych okazji.', addTitle: 'Dodaj okazję', cName: 'Nazwa', cDate: 'Data (dd.mm)',
+    cEffect: 'Efekt', cText: 'Tekst na banerze (opcjonalnie)', cAdd: '+ Dodaj okazję', cDel: 'Usuń', cBad: 'Wpisz nazwę i datę w formacie dd.mm.',
+    eff: { valentine: 'Walentynki (serca)', birthday: 'Urodziny (balony)', newyear: 'Sylwester (fajerwerki)', dayoff: 'Dzień wolny (słońce)', christmas: 'Święta (śnieg)', easter: 'Wielkanoc (kwiaty)', halloween: 'Halloween (nietoperze)' },
     hint: 'Animacja startuje, gdy zaczynają się godziny (albo gdy otworzysz dashboard w tych godzinach). „Cały czas” – trwa przez wszystkie te godziny.',
     names: {
       birthday_home: '🎂 Urodziny domowników', nameday: '🎉 Imieniny domowników', birthday_other: '🎈 Urodziny innych (z kalendarza)',
       newyear: '🎆 Sylwester i Nowy Rok', christmas: '🎄 Święta', easter: '🐣 Wielkanoc', valentine: '💘 Walentynki i rocznice',
-      halloween: '🎃 Halloween', dayoff: '🌞 Dzień wolny',
+      halloween: '🎃 Halloween', dayoff: '🌞 Dzień wolny', custom: '⭐ Własne okazje',
     },
     ex: {
       moon: 'Księżyc', fog: 'Mgła', eyes: 'Oczy w ciemności', lightning: 'Błyskawice', bats: 'Nietoperze', pumpkins: 'Dynie', leaves: 'Liście', ghosts: 'Duchy', spider: 'Pająk',
@@ -1161,12 +1194,24 @@ const SE_SET_STYLE = `
     background:var(--primary-color);color:var(--text-primary-color,#fff);box-shadow:0 6px 20px rgba(0,0,0,.35);font-weight:600}
   .bar button{border-color:var(--text-primary-color,#fff);color:var(--text-primary-color,#fff)}
   .bar button.fill{background:var(--text-primary-color,#fff);color:var(--primary-color)}
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 14px}
+  .tab{font:inherit;font-size:13.5px;min-height:40px;padding:0 16px;border-radius:999px;border:1px solid var(--divider-color,#555);background:transparent;color:var(--primary-text-color);cursor:pointer}
+  .tab.on{background:var(--primary-color);border-color:var(--primary-color);color:var(--text-primary-color,#fff);font-weight:700}
+  .box{border:1px solid var(--divider-color,#444);border-radius:14px;padding:12px;margin:8px 0;background:rgba(127,127,127,.05)}
+  .box h4{margin:0 0 4px;font-size:15px}
+  .dr{display:grid;grid-template-columns:minmax(0,1fr) 72px 14px 72px;align-items:center;gap:8px;min-height:44px;font-size:14px}
+  .dr span.d{text-align:center;opacity:.6}
+  input.t{font:inherit;font-size:14px;padding:6px 8px;border-radius:8px;border:1px solid var(--divider-color,#555);background:var(--card-background-color,#fff);color:var(--primary-text-color);box-sizing:border-box;width:100%}
+  .co{display:flex;align-items:center;gap:10px;min-height:48px;border-bottom:1px solid var(--divider-color,#444)}
+  .co .tx{flex:1;min-width:0}.co small{display:block;opacity:.7;font-size:12.5px}
+  .fg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:6px}
+  .fg label,.fl{display:flex;flex-direction:column;gap:4px;font-size:12.5px;opacity:.95}
   .msg{font-size:13px;margin-top:8px}
   .msg.err{color:var(--error-color,#e33)} .msg.ok{color:var(--success-color,#4caf50)}
 `;
 
 class SeasonalEffectsSettings extends HTMLElement {
-  constructor() { super(); this.attachShadow({ mode: 'open' }); this._open = {}; this._msg = ''; }
+  constructor() { super(); this.attachShadow({ mode: 'open' }); this._open = {}; this._msg = ''; this._tab = 'dates'; try { this._tab = sessionStorage.getItem('seasonal-effects:tab') || 'dates'; } catch (e) { /* ignore */ } }
 
   setConfig(cfg) {
     const json = JSON.stringify(cfg || {});
@@ -1181,7 +1226,7 @@ class SeasonalEffectsSettings extends HTMLElement {
 
   _fromCfg(cfg) {
     const S = window.seasonalEffects ? window.seasonalEffects.settings(cfg) : { occasions: {}, quiet: {} };
-    return { occasions: JSON.parse(JSON.stringify(S.occasions)), quiet: Object.assign({}, S.quiet) };
+    return { occasions: JSON.parse(JSON.stringify(S.occasions)), quiet: Object.assign({}, S.quiet), dates: JSON.parse(JSON.stringify(S.dates || {})), custom: JSON.parse(JSON.stringify(S.custom || [])) };
   }
   _U() { return SE_SET_UI[seLang(this._cfg, this._hass)]; }
   _isAdmin() { return !!(this._hass && this._hass.user && this._hass.user.is_admin); }
@@ -1239,23 +1284,24 @@ class SeasonalEffectsSettings extends HTMLElement {
           <div class="row">${U.from} <input type="time" data-o="${k}" data-f="chip_from" value="${seEsc(o.chip_from)}"> ${U.chipFor}
           <select data-o="${k}" data-f="chip_minutes" data-n="1">${this._opts(SE_CHIP, o.chip_minutes, (v) => this._fmtChip(U, v))}</select></div>
           <div class="row"><label><input type="checkbox" data-o="${k}" data-f="weekends" data-c="1" ${o.weekends ? 'checked' : ''}>${U.weekends}</label></div>` : '';
-      return `<details data-k="${k}" ${this._open[k] ? 'open' : ''}>
+      const time = this._tab === 'time';
+      return `<details data-k="${k}" ${this._open[this._tab + k] ? 'open' : ''}>
         <summary><span class="chev">›</span><span class="nm">${seEsc(U.names[k])}</span>${today[k] ? `<span class="badge">${U.today}</span>` : ''}
-          <label class="tg" title="${U.on}"><input type="checkbox" data-o="${k}" data-f="on" data-c="1" ${o.on !== false ? 'checked' : ''}><span></span></label></summary>
+          ${time ? `<label class="tg" title="${U.on}"><input type="checkbox" data-o="${k}" data-f="on" data-c="1" ${o.on !== false ? 'checked' : ''}><span></span></label>` : ''}</summary>
         <div class="body">
-          <div class="cols">${col('tablet')}${col('phone')}</div>
-          <div class="row">${U.banner} <select data-o="${k}" data-f="banner" data-n="1">${this._opts(SE_BANNERS, o.banner, (v) => this._fmtBan(U, v))}</select>
-            <span style="flex:1"></span><button class="b" data-p="${k}">▶ ${U.preview}</button></div>
+          ${time ? `<div class="cols">${col('tablet')}${col('phone')}</div>
+          <div class="row">${U.banner} <select data-o="${k}" data-f="banner" data-n="1">${this._opts(SE_BANNERS, o.banner, (v) => this._fmtBan(U, v))}</select></div>
+          ${dayoff}` : `<div class="row"><span style="flex:1"></span><button class="b" data-p="${k}">▶ ${U.preview}</button></div>
           ${slider('count')}${slider('opacity')}${slider('speed')}
-          ${extras ? `<div class="sub">${U.extras}</div><div class="chips">${extras}</div>` : ''}
-          ${dayoff}
+          ${extras ? `<div class="sub">${U.extras}</div><div class="chips">${extras}</div>` : ''}`}
         </div></details>`;
     }).join('');
 
     this.shadowRoot.innerHTML = `<style>${SE_SET_STYLE}</style><ha-card><div class="wrap">
       <h3>✨ ${U.title}</h3>
       <div class="status"></div>
-      <div class="row">${U.device}:
+      <div class="tabs" role="tablist">${['dates', 'time', 'look'].map((t) => `<button class="tab ${this._tab === t ? 'on' : ''}" role="tab" aria-selected="${this._tab === t}" data-tab="${t}">${U.tabs[t]}</button>`).join('')}</div>
+      ${this._tab === 'dates' ? this._datesHtml(U) : this._tab === 'time' ? `<div class="row">${U.device}:
         <select data-dev="1">
           <option value="" ${!stored ? 'selected' : ''}>${U.devAuto} (${SE.device.auto() === 'tablet' ? U.tablet : U.phone})</option>
           <option value="tablet" ${stored === 'tablet' ? 'selected' : ''}>${U.tablet}</option>
@@ -1265,7 +1311,7 @@ class SeasonalEffectsSettings extends HTMLElement {
       <div class="row"><label class="tg"><input type="checkbox" data-q="on" ${D.quiet.on ? 'checked' : ''}><span></span></label>${U.quiet}:
         ${U.from} <input type="time" data-q="from" value="${seEsc(D.quiet.from)}"> ${U.to} <input type="time" data-q="to" value="${seEsc(D.quiet.to)}"></div>
       <div class="hint">${U.hint}</div>
-      ${occHtml}
+      ${occHtml}` : occHtml}
       <div class="msgbox">${this._msg}</div>
       <div class="barwrap"></div>
     </div></ha-card>`;
@@ -1273,6 +1319,29 @@ class SeasonalEffectsSettings extends HTMLElement {
     this._bind();
     this._bar();
     this._status();
+  }
+
+  _datesHtml(U) {
+    const D = this._draft.dates;
+    const dm = (v) => { const m = String(v || '').match(/^(\d{2})-(\d{2})$/); return m ? m[2] + '.' + m[1] : ''; };
+    const row = (k, label) => `<div class="dr"><span>${seEsc(U.names[k] || label).replace(/^\S+\s/, '')}</span><input class="t" aria-label="${seEsc(label)} – od" data-dt="${k}" data-f="from" value="${dm(D[k].from)}" placeholder="dd.mm"><span class="d">–</span><input class="t" aria-label="${seEsc(label)} – do" data-dt="${k}" data-f="to" value="${dm(D[k].to)}" placeholder="dd.mm"></div>`;
+    const effOpts = (sel) => Object.keys(U.eff).map((e) => `<option value="${e}" ${sel === e ? 'selected' : ''}>${U.eff[e]}</option>`).join('');
+    const list = this._draft.custom.length ? this._draft.custom.map((c, i) => `<div class="co"><div class="tx"><b>${seEsc(c.name)}</b><small>${dm(c.date)} · ${seEsc(U.eff[c.effect] || c.effect)}${c.text ? ' · „' + seEsc(c.text) + '”' : ''}</small></div>
+      <button class="b" data-cdel="${i}">${U.cDel}</button></div>`).join('') : `<div class="hint">${U.customNone}</div>`;
+    return `<div class="box"><h4>${U.datesTitle}</h4><div class="hint" style="margin-bottom:6px">${U.datesHint}</div>
+      ${row('halloween', 'Halloween')}${row('christmas', 'Święta')}${row('valentine', 'Walentynki')}
+      <div class="dr"><span>${U.nyFrom}</span><input class="t" type="number" min="0" max="23" aria-label="${U.nyFrom}" data-dt="newyear" data-f="hour" data-n="1" value="${Number(D.newyear.hour)}"><span class="d">:00</span><span></span></div>
+      <div class="dr"><span>${U.easterDays}</span><input class="t" type="number" min="0" max="14" aria-label="${U.easterDays} – przed" data-dt="easter" data-f="before" data-n="1" value="${Number(D.easter.before)}"><span class="d">/</span><input class="t" type="number" min="0" max="14" aria-label="${U.easterDays} – po" data-dt="easter" data-f="after" data-n="1" value="${Number(D.easter.after)}"></div>
+      <div class="hint" style="margin-top:6px">${U.datesNote}</div></div>
+      <div class="box"><h4>${U.customTitle}</h4>${list}
+        <div class="sub">${U.addTitle}</div>
+        <label class="fl">${U.cName}<input class="t" data-cn="name" placeholder="np. Rocznica ślubu"></label>
+        <div class="fg"><label>${U.cDate}<input class="t" data-cn="date" placeholder="dd.mm"></label>
+          <label>${U.cEffect}<select data-cn="effect">${effOpts('valentine')}</select></label></div>
+        <label class="fl" style="margin-top:8px">${U.cText}<input class="t" data-cn="text"></label>
+        <div class="msg err" data-cerr style="display:none">${U.cBad}</div>
+        <div class="row"><button class="b fill" data-cadd="1">${U.cAdd}</button></div>
+      </div>`;
   }
 
   _bar() {
@@ -1292,7 +1361,24 @@ class SeasonalEffectsSettings extends HTMLElement {
     const R = this.shadowRoot;
     const D = this._draft;
     const touch = () => { if (!this._dirty) { this._dirty = true; this._msg = ''; const m = R.querySelector('.msgbox'); if (m) m.innerHTML = ''; this._bar(); } };
-    R.querySelectorAll('details').forEach((d) => d.addEventListener('toggle', () => { this._open[d.dataset.k] = d.open; }));
+    R.querySelectorAll('details').forEach((d) => d.addEventListener('toggle', () => { this._open[this._tab + d.dataset.k] = d.open; }));
+    R.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => { this._tab = b.dataset.tab; try { sessionStorage.setItem('seasonal-effects:tab', this._tab); } catch (e) { /* ignore */ } this._render(); }));
+    const toMd = (v) => { const m = String(v || '').trim().match(/^(\d{1,2})[.\-/ ](\d{1,2})\.?$/); if (!m) return ''; const dd = Number(m[1]), mm = Number(m[2]); if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return ''; return String(mm).padStart(2, '0') + '-' + String(dd).padStart(2, '0'); };
+    R.querySelectorAll('[data-dt]').forEach((inp) => inp.addEventListener('change', () => {
+      const t = D.dates[inp.dataset.dt]; const f = inp.dataset.f;
+      if (inp.dataset.n) { t[f] = Number(inp.value) || 0; touch(); return; }
+      const v = toMd(inp.value); if (!v) { inp.style.borderColor = 'var(--error-color,#e33)'; return; }
+      inp.style.borderColor = ''; t[f] = v; touch();
+    }));
+    R.querySelectorAll('[data-cdel]').forEach((b) => b.addEventListener('click', () => { D.custom.splice(Number(b.dataset.cdel), 1); touch(); this._render(); }));
+    const add = R.querySelector('[data-cadd]');
+    if (add) add.addEventListener('click', () => {
+      const g = (k) => R.querySelector(`[data-cn="${k}"]`).value.trim();
+      const date = toMd(g('date'));
+      if (!g('name') || !date) { R.querySelector('[data-cerr]').style.display = 'block'; return; }
+      D.custom.push({ name: g('name'), date, effect: g('effect'), text: g('text') });
+      touch(); this._render();
+    });
     R.querySelectorAll('summary .tg').forEach((t) => t.addEventListener('click', (e) => e.stopPropagation()));
     R.querySelectorAll('[data-o]').forEach((inp) => {
       const ev = inp.type === 'range' ? 'input' : 'change';
@@ -1355,6 +1441,10 @@ class SeasonalEffectsSettings extends HTMLElement {
       if (!node) throw new Error('card not found');
       const occ = this._compact();
       if (Object.keys(occ).length) node.occasions = occ; else delete node.occasions;
+      const dd = SE_DATES_DEFAULT(this._cfg); const dates = {};
+      for (const k of Object.keys(this._draft.dates)) { const r = {}; for (const f of Object.keys(this._draft.dates[k])) if (this._draft.dates[k][f] !== dd[k][f]) r[f] = this._draft.dates[k][f]; if (Object.keys(r).length) dates[k] = r; }
+      if (Object.keys(dates).length) node.dates = dates; else delete node.dates;
+      if (this._draft.custom.length) node.custom_occasions = this._draft.custom; else delete node.custom_occasions;
       const q = this._draft.quiet, dq = SE_QUIET_DEFAULT();
       if (q.on !== dq.on || q.from !== dq.from || q.to !== dq.to) node.quiet = q; else delete node.quiet;
       await h.callWS({ type: 'lovelace/config/save', url_path: url, config: conf });
