@@ -8,7 +8,7 @@
  * The engine finds that card in the current dashboard and follows its settings.
  */
 
-const SE_VERSION = '1.0.0';
+const SE_VERSION = '1.2.0';
 
 const SE_TEXT = {
   en: {
@@ -22,7 +22,12 @@ const SE_TEXT = {
     bday: '🎂 Happy birthday, {n}!',
     bdayAny: '🎂 Happy birthday!',
     nameday: '🎉 Happy name day, {n}!',
+    namedayShort: '🎉 Name day: {n}!',
+    dayoff: '🌞 {t}',
+    dayoffAny: '🌞 Day off!',
+    weekend: 'Weekend',
     and: ' and ',
+    holidays: {},
   },
   pl: {
     trick: '🎃 Cukierek albo psikus!',
@@ -35,20 +40,117 @@ const SE_TEXT = {
     bday: '🎂 Wszystkiego najlepszego, {n}!',
     bdayAny: '🎂 Wszystkiego najlepszego!',
     nameday: '🎉 Wszystkiego najlepszego z okazji imienin, {n}!',
+    namedayShort: '🎉 Imieniny: {n}!',
+    dayoff: '🌞 {t}',
+    dayoffAny: '🌞 Dzień wolny!',
+    weekend: 'Weekend',
     and: ' i ',
+    holidays: {
+      '01-01': 'Nowy Rok', '01-06': 'Trzech Króli', easter: 'Wielkanoc', easter1: 'Poniedziałek Wielkanocny',
+      '05-01': 'Święto Pracy', '05-03': 'Święto Konstytucji 3 Maja', pentecost: 'Zielone Świątki', corpus: 'Boże Ciało',
+      '08-15': 'Wniebowzięcie NMP', '11-01': 'Wszystkich Świętych', '11-11': 'Święto Niepodległości',
+      '12-24': 'Wigilia', '12-25': 'Boże Narodzenie', '12-26': 'Drugi dzień Świąt',
+    },
   },
 };
 
-const SE_EFFECTS = ['halloween', 'christmas', 'newyear', 'valentine', 'easter', 'birthday'];
+/** Animated scenes. */
+const SE_EFFECTS = ['halloween', 'christmas', 'newyear', 'valentine', 'easter', 'birthday', 'dayoff'];
+
+/** Occasions in priority order (the first active one picks the animation). */
+const SE_OCCASIONS = ['birthday_home', 'nameday', 'custom', 'newyear', 'birthday_other', 'christmas', 'easter', 'valentine', 'halloween', 'dayoff'];
+const SE_SCENE_OF = {
+  birthday_home: 'birthday', nameday: 'birthday', custom: 'valentine', birthday_other: 'birthday', newyear: 'newyear', christmas: 'christmas',
+  easter: 'easter', valentine: 'valentine', halloween: 'halloween', dayoff: 'dayoff',
+};
+/** Optional parts of every scene (each can be switched off per occasion). */
+const SE_EXTRAS = {
+  halloween: ['moon', 'fog', 'eyes', 'lightning', 'bats', 'pumpkins', 'leaves', 'ghosts', 'spider'],
+  christmas: ['snow', 'garland', 'snowbank', 'sleigh', 'star'],
+  newyear: ['fireworks', 'countdown', 'midnight'],
+  valentine: ['hearts', 'bokeh'],
+  easter: ['flowers', 'bunny'],
+  birthday: ['balloons', 'confetti'],
+  dayoff: ['sun', 'clouds', 'butterflies'],
+};
 
 const SE_HELPER_OPTIONS = {
-  en: ['Auto', 'Off', 'Halloween', 'Christmas', 'New Year', "Valentine's Day", 'Easter', 'Birthday'],
-  pl: ['Automatycznie', 'Wyłączony', 'Halloween', 'Święta', 'Sylwester', 'Walentynki', 'Wielkanoc', 'Urodziny'],
+  en: ['Auto', 'Off', 'Halloween', 'Christmas', 'New Year', "Valentine's Day", 'Easter', 'Birthday', 'Day off'],
+  pl: ['Automatycznie', 'Wyłączony', 'Halloween', 'Święta', 'Sylwester', 'Walentynki', 'Wielkanoc', 'Urodziny', 'Dzień wolny'],
 };
+
+/**
+ * Default timing of every occasion. Per device type (tablet / phone):
+ *   on – show at all, from/to – time window (HH:MM), duration – seconds of animation once it starts (0 = whole window),
+ *   repeat – hours until it starts again (0 = once a day).
+ * banner – seconds the greeting stays visible (0 = no banner, -1 = as long as the animation),
+ * count / opacity / speed – 0.2…1.5, extras – { part: false } switches off parts of the scene.
+ */
+function seOccDefaults() {
+  const d = (on, from, to, duration, repeat) => ({ on, from, to, duration, repeat });
+  const base = (tablet, phone, banner) => ({ on: true, tablet, phone, banner, count: 1, opacity: 1, speed: 1, extras: {} });
+  return {
+    birthday_home: base(d(true, '06:30', '22:00', 0, 0), d(true, '06:30', '22:00', 120, 3), 20),
+    nameday: base(d(true, '06:30', '22:00', 0, 0), d(true, '06:30', '22:00', 120, 3), 20),
+    custom: base(d(true, '06:30', '22:00', 0, 0), d(true, '06:30', '22:00', 120, 3), 20),
+    birthday_other: base(d(true, '06:30', '10:00', 60, 0), d(true, '06:30', '22:00', 30, 0), 12),
+    newyear: base(d(true, '06:30', '22:00', 300, 2), d(true, '06:30', '22:00', 60, 0), 16),
+    christmas: base(d(true, '06:30', '22:00', 60, 3), d(true, '06:30', '22:00', 30, 0), 10),
+    easter: base(d(true, '06:30', '22:00', 300, 2), d(true, '06:30', '22:00', 60, 0), 16),
+    valentine: base(d(true, '06:30', '22:00', 300, 2), d(true, '06:30', '22:00', 60, 0), 16),
+    halloween: base(d(true, '06:30', '22:00', 60, 3), d(true, '06:30', '22:00', 30, 0), 10),
+    dayoff: Object.assign(base(d(true, '06:30', '08:00', 180, 0), d(false, '06:30', '10:00', 30, 0), 10),
+      { chip_from: '06:30', chip_minutes: 90, weekends: false }),
+  };
+}
+const SE_QUIET_DEFAULT = () => ({ on: true, from: '22:00', to: '06:30' });
+/** When the seasonal effects run (MM-DD, no year). */
+const SE_DATES_DEFAULT = (cfg) => ({
+  halloween: { from: '10-25', to: '11-01' },
+  christmas: { from: (cfg && /^\d{2}-\d{2}$/.test(cfg.christmas_start || '') ? cfg.christmas_start : '12-06'), to: '01-06' },
+  valentine: { from: '02-14', to: '02-14' },
+  newyear: { hour: 18 },
+  easter: { before: 1, after: 1 },
+});
+/** Is MM-DD `d` inside from–to (wrapping over New Year when from > to)? */
+const seInDates = (d, from, to) => (from <= to ? d >= from && d <= to : d >= from || d <= to);
+
+/** Full settings with defaults filled in (also maps the 1.0 `effects` switches). */
+function seSettings(cfg) {
+  cfg = cfg || {};
+  const def = seOccDefaults();
+  const occ = {};
+  const src = cfg.occasions || {};
+  const old = cfg.effects || {};
+  for (const k of SE_OCCASIONS) {
+    const s = src[k] || {};
+    const o = Object.assign({}, def[k], s);
+    o.tablet = Object.assign({}, def[k].tablet, s.tablet || {});
+    o.phone = Object.assign({}, def[k].phone, s.phone || {});
+    o.extras = Object.assign({}, s.extras || {});
+    const scene = SE_SCENE_OF[k];
+    if (s.on === undefined && old[scene === 'dayoff' ? 'dayoff' : scene] === false) o.on = false;
+    occ[k] = o;
+  }
+  const dd = SE_DATES_DEFAULT(cfg);
+  const dates = {};
+  for (const k of Object.keys(dd)) dates[k] = Object.assign({}, dd[k], (cfg.dates || {})[k] || {});
+  const custom = (Array.isArray(cfg.custom_occasions) ? cfg.custom_occasions : [])
+    .filter((c) => c && c.name && /^\d{2}-\d{2}$/.test(c.date || ''))
+    .map((c) => ({ name: String(c.name), date: c.date, effect: SE_EFFECTS.includes(c.effect) ? c.effect : 'valentine', text: c.text ? String(c.text) : '' }));
+  return {
+    occasions: occ,
+    dates,
+    custom,
+    quiet: Object.assign(SE_QUIET_DEFAULT(), cfg.quiet || {}),
+    public_holidays: cfg.public_holidays || (seLangRaw(cfg) === 'pl' ? 'pl' : 'none'),
+    exclude_views: Array.isArray(cfg.exclude_views) ? cfg.exclude_views : [],
+  };
+}
 
 const seNorm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ł/g, 'l').trim();
 
-/** Maps the state of the control helper (any language) to auto / off / effect key. */
+/** Maps the state of the control helper (any language) to auto / off / scene key. */
 function seModeFromState(state) {
   const s = seNorm(state);
   if (!s || s === 'unknown' || s === 'unavailable') return 'auto';
@@ -60,12 +162,34 @@ function seModeFromState(state) {
   if (s.includes('valentine') || s.includes('walentynk')) return 'valentine';
   if (s.includes('easter') || s.includes('wielkanoc')) return 'easter';
   if (s.includes('birthday') || s.includes('urodzin') || s.includes('imienin')) return 'birthday';
+  if (s.includes('day off') || s.includes('wolny') || s.includes('holiday')) return 'dayoff';
   return 'auto';
 }
 
+function seLangRaw(cfg) {
+  const l = (cfg && cfg.language && cfg.language !== 'auto') ? cfg.language : (navigator.language || 'en');
+  return String(l).toLowerCase().startsWith('pl') ? 'pl' : 'en';
+}
 function seLang(cfg, hass) {
   const l = (cfg && cfg.language && cfg.language !== 'auto') ? cfg.language : ((hass && (hass.locale && hass.locale.language || hass.language)) || navigator.language || 'en');
   return String(l).toLowerCase().startsWith('pl') ? 'pl' : 'en';
+}
+
+/** Device type for timing: 'tablet' (wall panels, kiosk apps) or 'phone' (phones and computers). Can be overridden per device. */
+const SE_DEVICE_KEY = 'seasonal-effects:device';
+function seDeviceAuto() { return /HAPanel|Fully|; wv\)|Silk/i.test(navigator.userAgent) ? 'tablet' : 'phone'; }
+function seDevice() {
+  let v = '';
+  try { v = localStorage.getItem(SE_DEVICE_KEY) || ''; } catch (e) { /* storage blocked */ }
+  return v === 'tablet' || v === 'phone' ? v : seDeviceAuto();
+}
+
+const seMin = (hhmm) => { const m = String(hhmm || '').match(/^(\d{1,2}):(\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+/** Is the minute of day `t` inside from–to (wrapping past midnight when from > to)? */
+function seInWindow(t, from, to) {
+  const a = seMin(from), b = seMin(to);
+  if (a === null || b === null || a === b) return true;
+  return a < b ? (t >= a && t < b) : (t >= a || t < b);
 }
 
 (() => {
@@ -75,12 +199,17 @@ function seLang(cfg, hass) {
   const rand = (a, b) => a + Math.random() * (b - a);
   const pick = (t) => t[Math.floor(Math.random() * t.length)];
   const fmt = (s, o) => String(s).replace(/\{(\w)\}/g, (m, k) => (o[k] !== undefined ? o[k] : m));
+  const ymd = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
 
   let LITE = false;
-  let Q = 1;
+  let Q = 1;      // number of elements (device × global intensity × occasion count)
+  let QBASE = 1;  // device × global intensity
+  let SPEED = 1;
+  let EX = {};    // switched-off extras of the running scene
+  const has = (k) => EX[k] !== false;
 
   // ===================================================================
-  // When which effect
+  // When which occasion
   // ===================================================================
   function easterDate(y) {
     const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25),
@@ -88,6 +217,18 @@ function seLang(cfg, hass) {
       l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451),
       month = Math.floor((h + l - 7 * m + 114) / 31), day = ((h + l - 7 * m + 114) % 31) + 1;
     return new Date(y, month - 1, day);
+  }
+
+  /** Statutory public holidays (non-working days) – Poland. Returns the holiday key or ''. */
+  function publicHoliday(now, mode) {
+    if (mode !== 'pl') return '';
+    const d = pad(now.getMonth() + 1) + '-' + pad(now.getDate());
+    const fixed = ['01-01', '01-06', '05-01', '05-03', '08-15', '11-01', '11-11', '12-25', '12-26'];
+    if (now.getFullYear() >= 2025) fixed.push('12-24');
+    if (fixed.includes(d)) return d;
+    const e = easterDate(now.getFullYear());
+    const diff = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - e) / 86400000);
+    return diff === 0 ? 'easter' : diff === 1 ? 'easter1' : diff === 49 ? 'pentecost' : diff === 60 ? 'corpus' : '';
   }
 
   const mmdd = (v) => {
@@ -98,91 +239,221 @@ function seLang(cfg, hass) {
     return '';
   };
 
-  const calCache = { key: '', t: 0, events: [], busy: false };
+  const calCache = { key: '', day: '', t: 0, events: [], busy: false };
   function refreshCalendars(hass, cfg) {
-    const ids = (cfg.calendars || []).filter((e) => hass.states[e]);
+    const ids = [...new Set([].concat(cfg.calendars || [], cfg.dayoff_calendars || []))].filter((e) => hass.states[e]);
     const key = ids.join(',');
+    const day = ymd(new Date());
     if (!ids.length) { calCache.events = []; calCache.key = ''; return; }
-    if (calCache.busy || (calCache.key === key && Date.now() - calCache.t < 30 * 60000)) return;
+    if (calCache.busy || (calCache.key === key && calCache.day === day && Date.now() - calCache.t < 30 * 60000)) return;
     calCache.busy = true;
     const d0 = new Date(); d0.setHours(0, 0, 0, 0);
     const d1 = new Date(d0); d1.setDate(d1.getDate() + 1);
-    Promise.all(ids.map((id) => hass.callApi('GET', `calendars/${id}?start=${encodeURIComponent(d0.toISOString())}&end=${encodeURIComponent(d1.toISOString())}`).catch(() => [])))
-      .then((res) => { calCache.events = [].concat(...res); calCache.key = key; calCache.t = Date.now(); })
+    Promise.all(ids.map((id) => hass.callApi('GET', `calendars/${id}?start=${encodeURIComponent(d0.toISOString())}&end=${encodeURIComponent(d1.toISOString())}`)
+      .then((r) => (r || []).map((e) => Object.assign({ _cal: id }, e))).catch(() => [])))
+      .then((res) => { calCache.events = [].concat(...res); calCache.key = key; calCache.day = day; calCache.t = Date.now(); })
       .finally(() => { calCache.busy = false; setTimeout(check, 0); });
   }
+  /** Does a calendar event cover today (all-day events count by date, timed ones by start date)? */
+  const eventToday = (e) => {
+    const s = e.start && (e.start.date || e.start.dateTime || e.start);
+    const en = e.end && (e.end.date || e.end.dateTime || e.end);
+    const today = ymd(new Date());
+    if (!s) return true;
+    const sd = String(s).slice(0, 10), ed = en ? String(en).slice(0, 10) : sd;
+    if (String(s).length <= 10) return sd <= today && today < (ed > sd ? ed : sd + 'x');
+    return sd === today;
+  };
 
-  function familyOccasion(hass, cfg, T) {
-    if (cfg.effects && cfg.effects.birthday === false) return null;
+  /** Finds a family member in a text (name or alias, any letter case / diacritics). */
+  function familyMatch(family, text) {
+    const n = seNorm(text);
+    for (const p of family) {
+      if (!p || !p.name) continue;
+      const keys = [p.name].concat(Array.isArray(p.aliases) ? p.aliases : String(p.aliases || '').split(',')).map(seNorm).filter(Boolean);
+      if (keys.some((k) => n === k || new RegExp('(^|\\s)' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(\\s|$)').test(n))) return p.name;
+    }
+    return '';
+  }
+
+  /** All occasions of today: { key: { text, names } }. */
+  function occasionsToday(hass, cfg, T, S) {
+    const out = {};
+    const add = (k, v) => { if (!out[k]) out[k] = { names: [], texts: [] }; if (v.name) out[k].names.push(v.name); if (v.text) out[k].texts.push(v.text); };
     const now = new Date();
     const today = pad(now.getMonth() + 1) + '-' + pad(now.getDate());
     const family = Array.isArray(cfg.family) ? cfg.family : [];
-    const names = (arr) => [...new Set(arr)].join(T.and);
 
-    const bdays = family.filter((p) => p && p.name && mmdd(p.birthday) === today).map((p) => p.name);
-    if (bdays.length) return { effect: 'birthday', text: fmt(T.bday, { n: names(bdays) }) };
+    family.filter((p) => p && p.name && mmdd(p.birthday) === today).forEach((p) => add('birthday_home', { name: p.name }));
 
-    // calendar events today: birthdays and anniversaries
     refreshCalendars(hass, cfg);
+    const dayoffCals = cfg.dayoff_calendars || [];
     for (const e of calCache.events) {
+      if (!eventToday(e)) continue;
       const t = String(e.summary || '');
-      if (/urodzin|birthday|bday/i.test(t)) {
-        const who = t.replace(/\s*(urodziny|birthday|bday)\s*/i, ' ').replace(/['’]s\b/i, '').replace(/\s+/g, ' ').trim();
-        return { effect: 'birthday', text: who ? fmt(T.bday, { n: who }) : T.bdayAny };
+      if (dayoffCals.includes(e._cal)) {
+        if (/wolny|wolne|ferie|przerwa|day off|holiday|vacation|break/i.test(t)) add('dayoff', { text: t });
+        if (!(cfg.calendars || []).includes(e._cal)) continue;
       }
-      if (/rocznic|ślub|slub|anniversary|wedding/i.test(t)) return { effect: 'valentine', text: '💍 ' + t };
+      if (/urodzin|birthday|bday/i.test(t)) {
+        const who = t.replace(/\s*(urodziny|urodzin\w*|birthday|bday)\s*/i, ' ').replace(/['’]s\b/i, '').replace(/\s+/g, ' ').trim();
+        const fam = familyMatch(family, who);
+        if (fam) add('birthday_home', { name: fam }); else add('birthday_other', { name: who || '' });
+      } else if (/rocznic|(^|\s)(ślub|slub)(u|em|y)?(\s|$)|anniversary|wedding/i.test(t)) add('valentine', { text: '💍 ' + t });
+      else if (/imienin|name ?day/i.test(t)) {
+        const who = t.replace(/\s*(imieniny|imienin\w*|name ?day)\s*/i, ' ').replace(/\s+/g, ' ').trim();
+        const fam = familyMatch(family, who); if (fam) add('nameday', { name: fam });
+      }
     }
 
-    const nd = family.filter((p) => p && p.name && mmdd(p.nameday) === today).map((p) => p.name);
+    family.filter((p) => p && p.name && mmdd(p.nameday) === today).forEach((p) => add('nameday', { name: p.name }));
     const ent = cfg.nameday_entity && hass.states[cfg.nameday_entity];
     if (ent && ent.state && !/^(unknown|unavailable|none|brak)$/i.test(ent.state)) {
-      const today_names = ent.state.split(/[,;]\s*|\s+i\s+|\s+and\s+/).map(seNorm).filter(Boolean);
+      const todayNames = ent.state.split(/[,;]\s*|\s+i\s+|\s+and\s+/).map(seNorm).filter(Boolean);
       for (const p of family) {
         if (!p || !p.name) continue;
         const keys = [p.name].concat(Array.isArray(p.aliases) ? p.aliases : String(p.aliases || '').split(',')).map(seNorm).filter(Boolean);
-        if (keys.some((k) => today_names.includes(k))) nd.push(p.name);
+        if (keys.some((k) => todayNames.includes(k))) add('nameday', { name: p.name });
       }
     }
-    if (nd.length) return { effect: 'birthday', text: fmt(T.nameday, { n: names(nd) }) };
-    return null;
-  }
 
-  function seasonalEffect(cfg, T) {
-    const on = (k) => !(cfg.effects && cfg.effects[k] === false);
-    const now = new Date();
-    const d = pad(now.getMonth() + 1) + '-' + pad(now.getDate());
-    const xStart = mmdd(cfg.christmas_start) || '12-06';
-    if (on('newyear') && ((d === '12-31' && now.getHours() >= 18) || d === '01-01'))
-      return { effect: 'newyear', text: d === '01-01' ? fmt(T.ny, { y: now.getFullYear() }) : T.nye };
-    if (on('halloween') && d >= '10-25' && d <= '11-01') return { effect: 'halloween', text: d === '10-31' ? T.trick : '' };
-    if (on('christmas') && (d >= xStart || d <= '01-06'))
-      return { effect: 'christmas', text: d === '12-06' ? T.nicholas : (d >= '12-24' && d <= '12-26') ? T.xmas : '' };
-    if (on('valentine') && d === '02-14') return { effect: 'valentine', text: T.valentine };
-    if (on('easter')) {
-      const e = easterDate(now.getFullYear());
-      const from = new Date(e); from.setDate(e.getDate() - 1);
-      const to = new Date(e); to.setDate(e.getDate() + 1); to.setHours(23, 59, 59);
-      if (now >= from && now <= to) return { effect: 'easter', text: T.easter };
+    const hol = publicHoliday(now, S.public_holidays);
+    if (hol) add('dayoff', { text: (T.holidays && T.holidays[hol]) || '' });
+    if (S.occasions.dayoff.weekends && (now.getDay() === 0 || now.getDay() === 6) && !out.dayoff) add('dayoff', { text: T.weekend });
+
+    const D = S.dates;
+    const nyHour = Math.min(23, Math.max(0, Number(D.newyear.hour) || 0));
+    if ((today === '12-31' && now.getHours() >= nyHour) || today === '01-01') add('newyear', { text: today === '01-01' ? fmt(T.ny, { y: now.getFullYear() }) : T.nye });
+    if (seInDates(today, D.halloween.from, D.halloween.to)) add('halloween', { text: today === '10-31' ? T.trick : '' });
+    if (seInDates(today, D.christmas.from, D.christmas.to)) add('christmas', { text: today === '12-06' ? T.nicholas : (today >= '12-24' && today <= '12-26') ? T.xmas : '' });
+    if (seInDates(today, D.valentine.from, D.valentine.to)) add('valentine', { text: today === '02-14' ? T.valentine : '' });
+    const e = easterDate(now.getFullYear());
+    const from = new Date(e); from.setDate(e.getDate() - Math.max(0, Number(D.easter.before) || 0)); from.setHours(0, 0, 0, 0);
+    const to = new Date(e); to.setDate(e.getDate() + Math.max(0, Number(D.easter.after) || 0)); to.setHours(23, 59, 59);
+    if (now >= from && now <= to) add('easter', { text: T.easter });
+    for (const c of S.custom) if (c.date === today) { add('custom', { text: c.text || ('✨ ' + c.name) }); if (!out.custom.scene) out.custom.scene = c.effect; }
+
+    // texts
+    const names = (arr) => [...new Set(arr.filter(Boolean))].join(T.and);
+    const many = Object.keys(out).filter((k) => k === 'birthday_home' || k === 'nameday' || k === 'birthday_other').length > 1;
+    for (const k of Object.keys(out)) {
+      const o = out[k];
+      if (k === 'birthday_home' || k === 'birthday_other') o.text = o.names.filter(Boolean).length ? fmt(T.bday, { n: names(o.names) }) : T.bdayAny;
+      else if (k === 'nameday') o.text = fmt(many ? T.namedayShort : T.nameday, { n: names(o.names) });
+      else if (k === 'dayoff') { const t = [...new Set(o.texts.filter(Boolean))]; o.text = t.length ? fmt(T.dayoff, { t: t.join(' · ') }) : T.dayoffAny; }
+      else o.text = [...new Set(o.texts.filter(Boolean))].join(' · ');
     }
-    return null;
+    return out;
   }
 
   function fixedText(effect, T) {
     return {
       halloween: T.trick, christmas: T.xmas, newyear: fmt(T.ny, { y: new Date().getFullYear() + (new Date().getMonth() === 0 ? 0 : 1) }),
-      valentine: T.valentine, easter: T.easter, birthday: T.bdayAny,
+      valentine: T.valentine, easter: T.easter, birthday: T.bdayAny, dayoff: T.dayoffAny,
     }[effect] || '';
   }
 
-  function choose(hass, cfg) {
+  // ===================================================================
+  // Timing (per device, remembered in this browser)
+  // ===================================================================
+  const RUN_KEY = 'seasonal-effects:run';
+  let endTimer = 0;
+  let run = null;
+  function loadRun() {
+    const day = ymd(new Date());
+    if (run && run.day === day) return run;
+    try { run = JSON.parse(localStorage.getItem(RUN_KEY) || 'null'); } catch (e) { run = null; }
+    if (!run || run.day !== day) run = { day, occ: {} };
+    return run;
+  }
+  function saveRun() { try { localStorage.setItem(RUN_KEY, JSON.stringify(run)); } catch (e) { /* storage blocked */ } }
+
+  const nowMin = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
+  function midnightNY() {
+    const d = new Date(); const m = d.getMonth(), day = d.getDate(), t = d.getHours() * 60 + d.getMinutes();
+    return (m === 11 && day === 31 && t >= 23 * 60 + 45) || (m === 0 && day === 1 && t < 30);
+  }
+
+  /**
+   * Is the occasion animating right now on this device? Starts (or restarts) its run when it enters its window.
+   * Returns { active, started } – `started` is true on the check that started a new run (used for the banner).
+   */
+  function timing(key, o, S, dev, now, dry) {
+    const ds = o[dev] || {};
+    if (key === 'newyear' && o.extras.midnight !== false && midnightNY() && o.on !== false) return { active: true, started: false, midnight: true };
+    if (o.on === false || ds.on === false) return { active: false };
+    const t = nowMin();
+    if (S.quiet.on && seInWindow(t, S.quiet.from, S.quiet.to)) return { active: false };
+    if (!seInWindow(t, ds.from, ds.to)) return { active: false };
+    const r = loadRun();
+    let rec = r.occ[key];
+    let started = false;
+    if (dry) return { active: !rec || (Number(ds.duration) || 0) <= 0 || now - rec.start < (Number(ds.duration) || 0) * 1000 || ((Number(ds.repeat) || 0) > 0 && now - rec.start >= ds.repeat * 3600e3) };
+    const rep = Number(ds.repeat) || 0;
+    if (!rec || (rep > 0 && now - rec.start >= rep * 3600e3)) { rec = r.occ[key] = { start: now, banner: false }; started = true; saveRun(); }
+    const dur = Number(ds.duration) || 0;
+    return { active: dur <= 0 || now - rec.start < dur * 1000, started, rec, dur };
+  }
+
+  function excludedView(S) {
+    const v = decodeURIComponent(location.pathname.split('/')[2] || '');
+    return v && S.exclude_views.includes(v);
+  }
+
+  /** Decides the animation and the banner for now. */
+  function choose(hass, cfg, dry) {
     if (!cfg || cfg.enabled === false) return null;
     const T = SE_TEXT[seLang(cfg, hass)];
-    const banner = (r) => (r && cfg.banner === false ? { effect: r.effect, text: '' } : r);
+    const S = seSettings(cfg);
     const ent = cfg.entity && hass.states[cfg.entity];
     const mode = ent ? seModeFromState(ent.state) : 'auto';
     if (mode === 'off') return null;
-    if (mode !== 'auto') return banner({ effect: mode, text: fixedText(mode, T) });
-    return banner(familyOccasion(hass, cfg, T) || seasonalEffect(cfg, T));
+    if (mode !== 'auto') return { effect: mode, text: cfg.banner === false ? '' : fixedText(mode, T), bannerFor: 16, params: { count: 1, opacity: 1, speed: 1, extras: {} }, manual: true };
+    if (excludedView(S)) return null;
+    const occ = occasionsToday(hass, cfg, T, S);
+    const dev = seDevice();
+    const now = Date.now();
+    const active = [];
+    for (const k of SE_OCCASIONS) {
+      if (!occ[k]) continue;
+      const tm = timing(k, S.occasions[k], S, dev, now, dry);
+      if (tm.active) active.push({ key: k, o: S.occasions[k], tm, text: occ[k].text });
+    }
+    if (!active.length) return null;
+    const lead = active[0];
+    // banner: shown once when a run starts, with the texts of all occasions animating now
+    let text = '', bannerFor = 0;
+    if (!dry && cfg.banner !== false && active.some((a) => a.tm.started || (a.tm.rec && !a.tm.rec.banner))) {
+      text = [...new Set(active.map((a) => a.text).filter(Boolean))].join('   ');
+      for (const a of active) {
+        const b = Number(a.o.banner);
+        const secs = b < 0 ? (a.tm.dur > 0 ? Math.max(1, a.tm.dur - (now - a.tm.rec.start) / 1000) : 3600 * 24) : b;
+        bannerFor = Math.max(bannerFor, secs || 0);
+        if (a.tm.rec) a.tm.rec.banner = true;
+      }
+      saveRun();
+      if (!bannerFor) text = '';
+    }
+    // check again exactly when the shortest running animation should end
+    if (!dry) {
+      const left = active.map((a) => (a.tm.dur > 0 && a.tm.rec ? a.tm.dur * 1000 - (now - a.tm.rec.start) : Infinity)).reduce((x, y) => Math.min(x, y), Infinity);
+      clearTimeout(endTimer);
+      if (left < 15000) endTimer = setTimeout(check, Math.max(50, left + 50));
+    }
+    return { effect: lead.key === 'custom' ? (occ.custom.scene || 'valentine') : SE_SCENE_OF[lead.key], key: lead.key, text, bannerFor, params: { count: lead.o.count, opacity: lead.o.opacity, speed: lead.o.speed, extras: lead.o.extras }, keys: active.map((a) => a.key) };
+  }
+
+  /** Should the "day off" chip (used by dashboards) be visible now? */
+  function chipVisible(cfg) {
+    if (!cfg) return true;
+    const o = seSettings(cfg).occasions.dayoff;
+    const len = Number(o.chip_minutes);
+    if (!(len > 0)) return false;
+    if (len >= 1440) return true;
+    const a = seMin(o.chip_from); if (a === null) return true;
+    const t = nowMin();
+    const b = (a + len) % 1440;
+    return a < b ? (t >= a && t < b) : (t >= a || t < b);
   }
 
   // ===================================================================
@@ -280,7 +551,7 @@ function seLang(cfg, hass) {
     background:radial-gradient(60px 30px at 10% 100%,#fff 60%,transparent 62%),radial-gradient(90px 34px at 30% 100%,#f4f8ff 60%,transparent 62%),radial-gradient(70px 28px at 52% 100%,#fff 60%,transparent 62%),radial-gradient(100px 36px at 75% 100%,#f4f8ff 60%,transparent 62%),radial-gradient(70px 30px at 95% 100%,#fff 60%,transparent 62%),linear-gradient(to top,#fff 0 35%,transparent 36%);
     filter:drop-shadow(0 -2px 6px rgba(180,220,255,.6));opacity:.92}
   .se-banner{position:fixed;left:50%;top:70px;transform:translate(-50%,-30px) scale(.9);opacity:0;z-index:4;pointer-events:none;
-    padding:12px 26px;border-radius:999px;font:800 20px/1.2 Roboto,system-ui,sans-serif;color:#fff;letter-spacing:.2px;white-space:nowrap;max-width:94vw;overflow:hidden;text-overflow:ellipsis;
+    padding:12px 26px;border-radius:28px;font:800 20px/1.2 Roboto,system-ui,sans-serif;color:#fff;letter-spacing:.2px;white-space:normal;text-align:center;max-width:min(94vw,900px);width:max-content;box-sizing:border-box;
     background:linear-gradient(110deg,#ff5f9e,#ffb347,#ffe066,#7cf3d4,#8ab4ff,#d68aff,#ff5f9e);background-size:300% 100%;
     box-shadow:0 12px 40px rgba(0,0,0,.45),0 0 30px rgba(255,180,90,.45);text-shadow:0 2px 6px rgba(0,0,0,.35);
     transition:opacity .7s, transform .7s cubic-bezier(.2,1.4,.4,1);animation:seRainbow 6s linear infinite}
@@ -288,7 +559,13 @@ function seLang(cfg, hass) {
   @keyframes seRainbow{to{background-position:300% 0}}
   .se-countdown{position:fixed;left:50%;top:45%;transform:translate(-50%,-50%);z-index:4;pointer-events:none;font:900 22vmin/1 Roboto,system-ui,sans-serif;
     color:#fff;text-shadow:0 0 30px rgba(255,215,100,.9),0 0 80px rgba(255,120,60,.6)}
-  @media (prefers-reduced-motion: reduce){.se-fog,.se-moon{animation:none}}
+  .se-sun{position:absolute;right:5%;top:120px;width:120px;height:120px;border-radius:50%;
+    background:radial-gradient(circle at 45% 40%,#fffbe0 0%,#ffe27a 45%,#ffb43c 100%);box-shadow:0 0 60px 20px rgba(255,200,80,.45),0 0 160px 60px rgba(255,170,60,.18)}
+  .se-rays{position:absolute;right:calc(5% - 90px);top:30px;width:300px;height:300px;border-radius:50%;opacity:.5;
+    background:repeating-conic-gradient(from 0deg,rgba(255,225,130,.35) 0deg 6deg,transparent 6deg 22deg);
+    -webkit-mask:radial-gradient(circle,transparent 0 30%,#000 32%,transparent 70%);mask:radial-gradient(circle,transparent 0 30%,#000 32%,transparent 70%);animation:seRays 60s linear infinite}
+  @keyframes seRays{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion: reduce){.se-fog,.se-moon,.se-rays{animation:none}}
   `;
   function build() {
     if (cv) return;
@@ -310,13 +587,14 @@ function seLang(cfg, hass) {
     if (scene && scene.resize) scene.resize();
   }
   const el = (cls, css) => { const e = document.createElement('div'); e.className = cls; if (css) e.style.cssText = css; layer.appendChild(e); return e; };
-  function showBanner(t) {
+  function showBanner(t, secs) {
     banner.dataset.t = t || '';
     clearTimeout(bannerTimer);
     if (!t) { banner.classList.remove('on'); return; }
     banner.textContent = t;
     requestAnimationFrame(() => banner.classList.add('on'));
-    bannerTimer = setTimeout(() => banner.classList.remove('on'), 16000);
+    const ms = Math.min(24 * 3600, Number(secs) > 0 ? Number(secs) : 16) * 1000;
+    bannerTimer = setTimeout(() => { banner.classList.remove('on'); banner.dataset.t = ''; }, ms);
   }
 
   // ===================================================================
@@ -327,21 +605,21 @@ function seLang(cfg, hass) {
   // ---------- HALLOWEEN ----------
   SCENES.halloween = () => {
     el('se-glow', 'background:radial-gradient(130% 70% at 50% -15%,rgba(255,110,20,.28),transparent 60%),radial-gradient(90% 60% at 100% 110%,rgba(120,30,200,.30),transparent 70%),radial-gradient(120% 100% at 50% 50%,transparent 55%,rgba(0,0,0,.45))');
-    el('se-moon');
-    el('se-fog'); el('se-fog b');
-    for (let i = 0; i < (LITE ? 2 : 4); i++) el('se-eyes', `left:${rand(4, 90)}%;top:${rand(55, 90)}%;animation-delay:${rand(0, 7)}s;transform:scale(${rand(.7, 1.3)})`);
+    if (has('moon')) el('se-moon');
+    if (has('fog')) { el('se-fog'); el('se-fog b'); }
+    if (has('eyes')) for (let i = 0; i < (LITE ? 2 : 4); i++) el('se-eyes', `left:${rand(4, 90)}%;top:${rand(55, 90)}%;animation-delay:${rand(0, 7)}s;transform:scale(${rand(.7, 1.3)})`);
     const flash = el('se-flash');
     let nextFlash = performance.now() + rand(8000, 15000);
     const bats = []; const pumpkins = []; const leaves = []; const ghosts = []; let spider = null, nextSpider = performance.now() + rand(6000, 12000);
     const newBat = (start) => { const s = rand(14, 30); const dir = Math.random() < .5 ? 1 : -1; return { s, x: start ? rand(0, W) : (dir > 0 ? -60 : W + 60), y: rand(H * .08, H * .6), vx: dir * rand(1.4, 3.2) * (s / 22), phase: rand(0, 6), amp: rand(10, 40), t: 0 }; };
-    for (let i = 0; i < 14 * Q; i++) bats.push(newBat(true));
-    for (let i = 0; i < 6 * Q; i++) pumpkins.push({ s: rand(26, 46), x: rand(0, W), y: rand(0, H), vy: rand(.15, .45), vx: rand(-.2, .2), phase: rand(0, 6), rot: rand(-.3, .3) });
-    for (let i = 0; i < 16 * Q; i++) leaves.push({ ch: pick(['🍂', '🍁', '🍂']), s: rand(16, 28), x: rand(0, W), y: rand(0, H), vy: rand(.6, 1.6), vx: rand(-.6, .6), phase: rand(0, 6), rot: rand(0, 6), vr: rand(-.03, .03) });
-    for (let i = 0; i < 3 * Q; i++) ghosts.push({ x: rand(0, W), y: rand(H * .2, H * .8), vx: rand(-.4, .4), phase: rand(0, 6), s: rand(34, 54) });
+    if (has('bats')) for (let i = 0; i < 14 * Q; i++) bats.push(newBat(true));
+    if (has('pumpkins')) for (let i = 0; i < 6 * Q; i++) pumpkins.push({ s: rand(26, 46), x: rand(0, W), y: rand(0, H), vy: rand(.15, .45), vx: rand(-.2, .2), phase: rand(0, 6), rot: rand(-.3, .3) });
+    if (has('leaves')) for (let i = 0; i < 16 * Q; i++) leaves.push({ ch: pick(['🍂', '🍁', '🍂']), s: rand(16, 28), x: rand(0, W), y: rand(0, H), vy: rand(.6, 1.6), vx: rand(-.6, .6), phase: rand(0, 6), rot: rand(0, 6), vr: rand(-.03, .03) });
+    if (has('ghosts')) for (let i = 0; i < 3 * Q; i++) ghosts.push({ x: rand(0, W), y: rand(H * .2, H * .8), vx: rand(-.4, .4), phase: rand(0, 6), s: rand(34, 54) });
     return {
       step(dt, t) {
         ctx.clearRect(0, 0, W, H);
-        if (t > nextFlash) { flash.classList.remove('on'); void flash.offsetWidth; flash.classList.add('on'); nextFlash = t + rand(14000, 30000); }
+        if (has('lightning') && t > nextFlash) { flash.classList.remove('on'); void flash.offsetWidth; flash.classList.add('on'); nextFlash = t + rand(14000, 30000); }
         for (const d of ghosts) {
           d.phase += 0.012 * dt; d.x += d.vx * dt; if (d.x < -80) d.x = W + 60; if (d.x > W + 80) d.x = -60;
           ctx.globalAlpha = 0.25 + 0.35 * (0.5 + 0.5 * Math.sin(d.phase * 0.7)); const im = emoji('👻', Math.round(d.s), 'rgba(200,220,255,.25)');
@@ -368,7 +646,7 @@ function seLang(cfg, hass) {
           if (b.x < -80 || b.x > W + 80) bats[i] = newBat(false);
         }
         // spider on a thread
-        if (!spider && t > nextSpider) spider = { x: rand(W * .1, W * .9), y: 0, target: rand(H * .2, H * .45), phase: 0, st: 1 };
+        if (has('spider') && !spider && t > nextSpider) spider = { x: rand(W * .1, W * .9), y: 0, target: rand(H * .2, H * .45), phase: 0, st: 1 };
         if (spider) {
           spider.phase += dt;
           if (spider.st === 1) { spider.y += 2.2 * dt; if (spider.y >= spider.target) { spider.st = 2; spider.wait = t + 3500; } }
@@ -387,9 +665,10 @@ function seLang(cfg, hass) {
   // ---------- CHRISTMAS ----------
   SCENES.christmas = () => {
     el('se-glow', 'background:radial-gradient(130% 60% at 50% -15%,rgba(120,190,255,.22),transparent 60%),radial-gradient(80% 50% at 0% 110%,rgba(255,80,80,.12),transparent 70%),radial-gradient(80% 50% at 100% 110%,rgba(80,255,150,.10),transparent 70%)');
-    const gar = el('se-garland');
-    const bank = el('se-snowbank'); setTimeout(() => { bank.style.height = (LITE ? 18 : 30) + 'px'; }, 50);
+    const gar = has('garland') ? el('se-garland') : null;
+    if (has('snowbank')) { const bank = el('se-snowbank'); setTimeout(() => { bank.style.height = (LITE ? 18 : 30) + 'px'; }, 50); }
     const drawGarland = () => {
+      if (!gar) return;
       gar.innerHTML = '';
       const cols = ['#ff4040', '#ffd040', '#40ff80', '#40c0ff', '#ff70ff'];
       const n = Math.ceil(W / 46); const seg = W / n;
@@ -411,7 +690,7 @@ function seLang(cfg, hass) {
       { n: 10 * Q, r: [12, 18], v: [1.2, 1.9], blur: true, a: .65 },
     ];
     const p = [];
-    for (const w of depth) for (let i = 0; i < w.n; i++) p.push({ w, x: rand(0, W), y: rand(0, H), r: Math.round(rand(w.r[0], w.r[1])), vy: rand(w.v[0], w.v[1]), phase: rand(0, 6), rot: rand(0, 6), vr: rand(-.01, .01) });
+    if (has('snow')) for (const w of depth) for (let i = 0; i < w.n; i++) p.push({ w, x: rand(0, W), y: rand(0, H), r: Math.round(rand(w.r[0], w.r[1])), vy: rand(w.v[0], w.v[1]), phase: rand(0, 6), rot: rand(0, 6), vr: rand(-.01, .01) });
     let sleigh = null, nextSleigh = performance.now() + rand(5000, 9000); const sparks = [];
     let star = null, nextStar = performance.now() + rand(4000, 9000);
     return {
@@ -429,7 +708,7 @@ function seLang(cfg, hass) {
         }
         ctx.globalAlpha = 1;
         // shooting star
-        if (!star && t > nextStar) star = { x: rand(W * .1, W * .7), y: rand(40, H * .3), vx: rand(7, 11), vy: rand(2, 4), z: 1 };
+        if (has('star') && !star && t > nextStar) star = { x: rand(W * .1, W * .7), y: rand(40, H * .3), vx: rand(7, 11), vy: rand(2, 4), z: 1 };
         if (star) {
           star.x += star.vx * dt; star.y += star.vy * dt; star.z -= .012 * dt;
           const g = ctx.createLinearGradient(star.x, star.y, star.x - star.vx * 14, star.y - star.vy * 14);
@@ -439,7 +718,7 @@ function seLang(cfg, hass) {
           if (star.z <= 0 || star.x > W + 50) { star = null; nextStar = t + rand(6000, 14000); }
         }
         // Santa's sleigh
-        if (!sleigh && t > nextSleigh) { const k = Math.random() < .5 ? 1 : -1; sleigh = { k, x: k > 0 ? -260 : W + 260, y0: rand(H * .12, H * .3), phase: 0 }; }
+        if (has('sleigh') && !sleigh && t > nextSleigh) { const k = Math.random() < .5 ? 1 : -1; sleigh = { k, x: k > 0 ? -260 : W + 260, y0: rand(H * .12, H * .3), phase: 0 }; }
         if (sleigh) {
           sleigh.x += sleigh.k * 3.2 * dt; sleigh.phase += .03 * dt; const y = sleigh.y0 + Math.sin(sleigh.phase) * 22;
           ctx.save(); ctx.translate(sleigh.x, y); if (sleigh.k < 0) ctx.scale(-1, 1);
@@ -487,14 +766,14 @@ function seLang(cfg, hass) {
         ctx.globalCompositeOperation = 'lighter';
         const now = new Date();
         const toMidnight = (new Date(now.getFullYear(), 11, 31, 23, 59, 60) - now) / 1000;
-        if (now.getMonth() === 11 && now.getDate() === 31 && toMidnight <= 10 && toMidnight > 0) {
+        if (has('countdown') && now.getMonth() === 11 && now.getDate() === 31 && toMidnight <= 10 && toMidnight > 0) {
           if (!countdown) { countdown = document.createElement('div'); countdown.className = 'se-countdown'; document.body.appendChild(countdown); }
           countdown.textContent = Math.ceil(toMidnight);
         } else if (countdown) {
           countdown.remove(); countdown = null;
-          const T = SE_TEXT[seLang(state.cfg, getHass())]; showBanner(fmt(T.ny, { y: now.getFullYear() }));
+          const T = SE_TEXT[seLang(state.cfg, getHass())]; showBanner(fmt(T.ny, { y: now.getFullYear() }), 30);
         }
-        if (t > next && rockets.length < (LITE ? 2 : 5)) { rockets.push({ x: rand(W * .12, W * .88), y: H + 10, vx: rand(-.6, .6), vy: -rand(9, 13), target: rand(H * .12, H * .42), c: pick(COLS) }); next = t + rand(350, 1100) / Q; }
+        if (has('fireworks') && t > next && rockets.length < (LITE ? 2 : 5)) { rockets.push({ x: rand(W * .12, W * .88), y: H + 10, vx: rand(-.6, .6), vy: -rand(9, 13), target: rand(H * .12, H * .42), c: pick(COLS) }); next = t + rand(350, 1100) / Q; }
         for (let i = rockets.length - 1; i >= 0; i--) {
           const r = rockets[i]; r.x += r.vx * dt; r.y += r.vy * dt; r.vy += .12 * dt;
           ctx.globalAlpha = 1; ctx.drawImage(glowDot('rgba(255,200,120,.9)', 10), r.x - 10, r.y - 10);
@@ -521,8 +800,8 @@ function seLang(cfg, hass) {
     el('se-glow', 'background:radial-gradient(120% 70% at 50% 115%,rgba(255,70,140,.28),transparent 60%),radial-gradient(80% 50% at 50% -10%,rgba(255,150,200,.15),transparent 70%)');
     const COLS = ['rgba(255,70,120,1)', 'rgba(255,120,170,1)', 'rgba(255,40,90,1)', 'rgba(255,170,200,1)'];
     const p = []; const bokeh = [];
-    for (let i = 0; i < 26 * Q; i++) p.push({ x: rand(0, W), y: rand(0, H), s: Math.round(rand(14, 34)), vy: -rand(.5, 1.3), phase: rand(0, 6), c: pick(COLS) });
-    for (let i = 0; i < 14 * Q; i++) bokeh.push({ x: rand(0, W), y: rand(0, H), r: rand(20, 60), phase: rand(0, 6), v: rand(.002, .006) });
+    if (has('hearts')) for (let i = 0; i < 26 * Q; i++) p.push({ x: rand(0, W), y: rand(0, H), s: Math.round(rand(14, 34)), vy: -rand(.5, 1.3), phase: rand(0, 6), c: pick(COLS) });
+    if (has('bokeh')) for (let i = 0; i < 14 * Q; i++) bokeh.push({ x: rand(0, W), y: rand(0, H), r: rand(20, 60), phase: rand(0, 6), v: rand(.002, .006) });
     return {
       step(dt) {
         ctx.clearRect(0, 0, W, H);
@@ -542,7 +821,7 @@ function seLang(cfg, hass) {
   SCENES.easter = () => {
     el('se-glow', 'background:radial-gradient(130% 60% at 50% -15%,rgba(255,240,150,.22),transparent 60%),radial-gradient(100% 50% at 50% 115%,rgba(120,255,150,.18),transparent 70%)');
     const p = []; let bunny = null, nextBunny = performance.now() + 3000;
-    for (let i = 0; i < 22 * Q; i++) p.push({ ch: pick(['🌸', '🌼', '🌷', '🥚', '🌸', '🍃']), x: rand(0, W), y: rand(0, H), s: Math.round(rand(16, 30)), vy: rand(.4, 1.1), phase: rand(0, 6), rot: rand(0, 6), vr: rand(-.03, .03) });
+    if (has('flowers')) for (let i = 0; i < 22 * Q; i++) p.push({ ch: pick(['🌸', '🌼', '🌷', '🥚', '🌸', '🍃']), x: rand(0, W), y: rand(0, H), s: Math.round(rand(16, 30)), vy: rand(.4, 1.1), phase: rand(0, 6), rot: rand(0, 6), vr: rand(-.03, .03) });
     return {
       step(dt, t) {
         ctx.clearRect(0, 0, W, H);
@@ -552,7 +831,7 @@ function seLang(cfg, hass) {
           if (k.y < -60) { k.y = H + 30; }
           const im = emoji(k.ch, k.s); ctx.globalAlpha = .85; ctx.save(); ctx.translate(k.x, k.y); ctx.rotate(k.rot); ctx.drawImage(im, -im.width / 2, -im.height / 2); ctx.restore();
         }
-        if (!bunny && t > nextBunny) bunny = { x: -60, phase: 0 };
+        if (has('bunny') && !bunny && t > nextBunny) bunny = { x: -60, phase: 0 };
         if (bunny) {
           bunny.x += 2.6 * dt; bunny.phase += .09 * dt; const hop = Math.abs(Math.sin(bunny.phase)) * 70;
           ctx.globalAlpha = 1; const im = emoji('🐇', 46); ctx.save(); ctx.translate(bunny.x, H - 40 - hop); ctx.scale(-1, 1); ctx.drawImage(im, -im.width / 2, -im.height / 2); ctx.restore();
@@ -576,11 +855,11 @@ function seLang(cfg, hass) {
         confetti.push({ x: x0, y: y0, vx: Math.cos(ang) * v, vy: Math.sin(ang) * v, w: rand(6, 11), h: rand(10, 16), r: rand(0, 6), vr: rand(-.25, .25), c: pick(COLS), round: Math.random() < .25 });
       }
     };
-    for (let i = 0; i < 9 * Q; i++) balloons.push({ x: rand(0, W), y: rand(H * .3, H * 1.4), s: Math.round(rand(34, 56)), vy: -rand(.5, 1.1), phase: rand(0, 6), c: pick(['#ff5f9e', '#ffc24b', '#5ac8ff', '#9b6bff', '#5dff9a', '#ff7a59']) });
+    if (has('balloons')) for (let i = 0; i < 9 * Q; i++) balloons.push({ x: rand(0, W), y: rand(H * .3, H * 1.4), s: Math.round(rand(34, 56)), vy: -rand(.5, 1.1), phase: rand(0, 6), c: pick(['#ff5f9e', '#ffc24b', '#5ac8ff', '#9b6bff', '#5dff9a', '#ff7a59']) });
     return {
       step(dt, t) {
         ctx.clearRect(0, 0, W, H);
-        if (t > nextVolley) { volley(-1); volley(1); nextVolley = t + rand(9000, 14000); }
+        if (has('confetti') && t > nextVolley) { volley(-1); volley(1); nextVolley = t + rand(9000, 14000); }
         for (const b of balloons) {
           b.phase += .02 * dt; b.y += b.vy * dt; b.x += Math.sin(b.phase) * .5 * dt;
           if (b.y < -b.s * 3) { b.y = H + b.s; b.x = rand(0, W); }
@@ -599,30 +878,67 @@ function seLang(cfg, hass) {
     };
   };
 
+  // ---------- DAY OFF (sun, clouds, butterflies) ----------
+  SCENES.dayoff = () => {
+    el('se-glow', 'background:radial-gradient(120% 70% at 85% -10%,rgba(255,210,110,.30),transparent 60%),radial-gradient(90% 50% at 10% 115%,rgba(120,220,255,.16),transparent 70%)');
+    if (has('sun')) { el('se-rays'); el('se-sun'); }
+    const clouds = [], flies = [];
+    if (has('clouds')) for (let i = 0; i < 5 * Q; i++) clouds.push({ x: rand(-100, W), y: rand(H * .05, H * .35), s: Math.round(rand(50, 90)), vx: rand(.15, .4), a: rand(.35, .6) });
+    if (has('butterflies')) for (let i = 0; i < 7 * Q; i++) flies.push({ ch: pick(['🦋', '🦋', '🌼', '🍃']), x: rand(0, W), y: rand(H * .3, H), s: Math.round(rand(18, 30)), phase: rand(0, 6), vx: rand(-.8, .8), vy: -rand(.2, .6) });
+    return {
+      step(dt) {
+        ctx.clearRect(0, 0, W, H);
+        for (const c of clouds) {
+          c.x += c.vx * dt; if (c.x > W + 120) { c.x = -140; c.y = rand(H * .05, H * .35); }
+          ctx.globalAlpha = c.a; const im = emoji('☁️', c.s); ctx.drawImage(im, c.x - im.width / 2, c.y - im.height / 2);
+        }
+        for (const f of flies) {
+          f.phase += .08 * dt; f.x += (f.vx + Math.sin(f.phase * .4) * 1.2) * dt; f.y += (f.vy + Math.cos(f.phase * .5) * .6) * dt;
+          if (f.y < -40) { f.y = H + 30; f.x = rand(0, W); } if (f.x < -40) f.x = W + 30; if (f.x > W + 40) f.x = -30;
+          const flap = f.ch === '🦋' ? .6 + .4 * Math.abs(Math.sin(f.phase * 2)) : 1;
+          const im = emoji(f.ch, f.s); ctx.globalAlpha = .9;
+          ctx.save(); ctx.translate(f.x, f.y); ctx.scale(flap, 1); ctx.rotate(Math.sin(f.phase) * .2); ctx.drawImage(im, -im.width / 2, -im.height / 2); ctx.restore();
+        }
+        ctx.globalAlpha = 1;
+      },
+    };
+  };
+
   // ===================================================================
   // Loop and switching
   // ===================================================================
   function frame(t) {
     raf = 0;
     if (!scene || document.hidden) return;
-    const dt = Math.min(3, (t - last) / 16.7 || 1); last = t;
+    const dt = Math.min(3, (t - last) / 16.7 || 1) * SPEED; last = t;
     try { scene.step(dt, t); } catch (e) { console.warn('seasonal-effects', e); }
     raf = requestAnimationFrame(frame);
   }
   function startLoop() { if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame); } }
 
+  const clamp = (v, a, b, d) => { const n = Number(v); return isFinite(n) && n > 0 ? Math.min(b, Math.max(a, n)) : d; };
+  let paramsKey = '';
   function apply(choice) {
-    const eff = choice ? choice.effect : null; const text = choice ? (choice.text || '') : '';
-    if (eff === current && (!banner || banner.dataset.t === text)) return;
+    const eff = choice ? choice.effect : null;
+    const p = (choice && choice.params) || {};
+    const key = JSON.stringify([eff, p.count, p.opacity, p.speed, p.extras, QBASE, LITE]);
     build();
-    if (eff !== current) {
+    const changed = key !== paramsKey;
+    if (changed) {
+      paramsKey = key;
       if (scene && scene.stop) scene.stop();
       scene = null; layer.innerHTML = ''; ctx.clearRect(0, 0, W, H);
       if (raf) { cancelAnimationFrame(raf); raf = 0; }
       current = eff;
+      EX = Object.assign({}, p.extras || {});
+      Q = QBASE * clamp(p.count, 0.2, 1.5, 1);
+      SPEED = clamp(p.speed, 0.2, 2, 1);
+      const op = clamp(p.opacity, 0.1, 1, 1);
+      cv.style.opacity = op; layer.style.opacity = op;
       if (eff && SCENES[eff] && !reducedMotion) { scene = SCENES[eff](); startLoop(); }
     }
-    showBanner(text);
+    if (!eff) { if (banner.dataset.t) showBanner(''); return; }
+    if (choice.text && (!choice.manual || changed)) showBanner(choice.text, choice.bannerFor);
   }
 
   // ===================================================================
@@ -683,10 +999,9 @@ function seLang(cfg, hass) {
     const intensity = Math.min(1.5, Math.max(0.2, Number(cfg && cfg.intensity) || 1));
     const q = (lite ? 0.5 : 1) * intensity;
     reducedMotion = !(cfg && cfg.reduced_motion === 'ignore') && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (lite !== LITE || q !== Q) {
-      LITE = lite; Q = q;
+    if (lite !== LITE || q !== QBASE) {
+      LITE = lite; QBASE = q;
       if (cv) resize();
-      if (current && SCENES[current] && !reducedMotion) { const c = current; current = '__restart'; apply({ effect: c, text: banner ? banner.dataset.t : '' }); }
     }
   }
 
@@ -694,7 +1009,8 @@ function seLang(cfg, hass) {
     try {
       const hass = getHass(); if (!hass || !hass.states) return;
       if (state.preview && Date.now() < state.previewUntil) return;
-      if (state.preview) { state.preview = null; current = '__restart'; }
+      if (state.preview) { state.preview = null; paramsKey = ''; }
+      if (document.hidden) return;
       const cfg = resolveConfig(hass);
       state.cfg = cfg;
       setPerformance(cfg);
@@ -710,12 +1026,19 @@ function seLang(cfg, hass) {
   window.seasonalEffects = {
     version: SE_VERSION,
     /** Show an effect for a while (default 15 s), e.g. seasonalEffects.preview('christmas'). */
-    preview(effect, seconds) {
+    preview(effect, seconds, params) {
       const hass = getHass();
       const T = SE_TEXT[seLang(state.cfg, hass)];
-      state.preview = effect || 'off'; state.previewUntil = Date.now() + (seconds || 15) * 1000;
+      let scene = effect;
+      let p = params;
+      if (SE_SCENE_OF[effect]) { // an occasion key: use its saved settings
+        scene = SE_SCENE_OF[effect];
+        if (!p) { const o = seSettings(state.cfg).occasions[effect]; p = { count: o.count, opacity: o.opacity, speed: o.speed, extras: o.extras }; }
+      }
+      state.preview = scene || 'off'; state.previewUntil = Date.now() + (seconds || 15) * 1000;
       build(); const prevReduced = reducedMotion; reducedMotion = false;
-      apply(effect && SCENES[effect] ? { effect, text: fixedText(effect, T) } : null);
+      paramsKey = '';
+      apply(scene && SCENES[scene] ? { effect: scene, text: fixedText(scene, T), bannerFor: Math.min(10, seconds || 15), params: p || {} } : null);
       reducedMotion = prevReduced;
       setTimeout(check, (seconds || 15) * 1000 + 50);
     },
@@ -728,9 +1051,22 @@ function seLang(cfg, hass) {
     },
     release() { state.pushed = {}; state.dashCache = {}; check(); },
     refresh() { state.dashCache = {}; calCache.t = 0; check(); },
-    current: () => ({ effect: current, text: banner ? banner.dataset.t : '', lite: LITE, intensity: Q, dashboard: state.dash }),
-    choose: (cfg) => choose(getHass(), cfg),
+    current: () => ({ effect: current, text: banner ? banner.dataset.t : '', lite: LITE, intensity: Q, dashboard: state.dash, device: seDevice() }),
+    /** What would show today (no side effects). */
+    choose: (cfg) => choose(getHass(), cfg, true),
+    /** Today's occasions for a configuration: { key: { text } }. */
+    occasions: (cfg) => { const h = getHass(); const c = cfg || state.cfg || {}; return h ? occasionsToday(h, c, SE_TEXT[seLang(c, h)], seSettings(c)) : {}; },
+    /** Settings with defaults filled in. */
+    settings: (cfg) => seSettings(cfg || state.cfg),
+    /** Should the "day off" chip be visible now (for dashboard templates)? */
+    chipVisible: () => chipVisible(state.cfg),
+    device: { get: seDevice, auto: seDeviceAuto, set: (v) => { try { if (v === 'tablet' || v === 'phone') localStorage.setItem(SE_DEVICE_KEY, v); else localStorage.removeItem(SE_DEVICE_KEY); } catch (e) { /* storage blocked */ } paramsKey = ''; check(); } },
+    /** Forget when effects ran today on this device (they start again). */
+    resetToday() { run = { day: ymd(new Date()), occ: {} }; saveRun(); paramsKey = ''; check(); },
     effects: SE_EFFECTS.slice(),
+    occasionKeys: SE_OCCASIONS.slice(),
+    sceneOf: Object.assign({}, SE_SCENE_OF),
+    extras: JSON.parse(JSON.stringify(SE_EXTRAS)),
   };
   console.info('%c SEASONAL-EFFECTS ' + SE_VERSION + ' ', 'color:#fff;background:linear-gradient(90deg,#ff5f9e,#ffb347);font-weight:bold;border-radius:4px');
 })();

@@ -30,8 +30,12 @@ const SE_UI = {
     namedaySensor: 'Name day sensor (optional)',
     namedayText: 'A sensor whose state lists today\'s name days (e.g. “Anna, Joachim”). Names are matched with your family list (including other forms of names).',
     effTitle: 'Which effects and how strong?',
-    effNames: { halloween: '🎃 Halloween (25 Oct – 1 Nov)', christmas: '🎄 Christmas (snow, garland, Santa\'s sleigh)', newyear: '🎆 New Year\'s Eve (31 Dec from 18:00, 1 Jan)', valentine: '💘 Valentine\'s Day (14 Feb)', easter: '🐣 Easter (Saturday – Monday)', birthday: '🎂 Family birthdays, name days and anniversaries' },
+    effNames: { halloween: '🎃 Halloween (25 Oct – 1 Nov)', christmas: '🎄 Christmas (snow, garland, Santa\'s sleigh)', newyear: '🎆 New Year\'s Eve (31 Dec from 18:00, 1 Jan)', valentine: '💘 Valentine\'s Day (14 Feb)', easter: '🐣 Easter (Saturday – Monday)', birthday: '🎂 Family birthdays, name days and anniversaries', dayoff: '🌞 Days off (public holidays, calendar)' },
     xmasStart: 'Christmas effect starts on',
+    settingsPanel: 'Show the settings panel on the dashboard (timing for every occasion, tablet / phone)',
+    excludeViews: 'Views without effects (paths, comma-separated, e.g. night,doorbell)',
+    dayoffCals: 'Calendars with days off (events with “day off”, “holiday”, “break” in the title)',
+    holidays: 'Public holidays', holNone: 'none', holPl: 'Poland (statutory days off)',
     intensity: 'Number of animated elements', lite: 'Light mode (for tablets and slow devices)',
     liteAuto: 'Automatic', liteOn: 'Always on', liteOff: 'Off',
     banner: 'Show a greeting banner at the top', allDash: 'Also use these settings on dashboards without this card',
@@ -67,8 +71,12 @@ const SE_UI = {
     namedaySensor: 'Czujnik imienin (opcjonalnie)',
     namedayText: 'Czujnik, którego stan to dzisiejsze imieniny (np. „Anny, Joachima”). Imiona są porównywane z listą rodziny (także z innymi formami imion).',
     effTitle: 'Które efekty i jak intensywne?',
-    effNames: { halloween: '🎃 Halloween (25.10–1.11)', christmas: '🎄 Święta (śnieg, girlanda, sanie Mikołaja)', newyear: '🎆 Sylwester (31.12 od 18:00, 1.01)', valentine: '💘 Walentynki (14.02)', easter: '🐣 Wielkanoc (sobota–poniedziałek)', birthday: '🎂 Urodziny, imieniny i rocznice w rodzinie' },
+    effNames: { halloween: '🎃 Halloween (25.10–1.11)', christmas: '🎄 Święta (śnieg, girlanda, sanie Mikołaja)', newyear: '🎆 Sylwester (31.12 od 18:00, 1.01)', valentine: '💘 Walentynki (14.02)', easter: '🐣 Wielkanoc (sobota–poniedziałek)', birthday: '🎂 Urodziny, imieniny i rocznice w rodzinie', dayoff: '🌞 Dni wolne (święta państwowe, kalendarz)' },
     xmasStart: 'Efekt świąteczny od',
+    settingsPanel: 'Pokazuj panel ustawień na dashboardzie (czas każdej okazji, tablet / telefon)',
+    excludeViews: 'Widoki bez efektów (ścieżki po przecinku, np. noc,dzwonek)',
+    dayoffCals: 'Kalendarze z dniami wolnymi (wydarzenia z „wolny”, „ferie”, „przerwa” w tytule)',
+    holidays: 'Święta państwowe', holNone: 'brak', holPl: 'Polska (ustawowo wolne)',
     intensity: 'Liczba animowanych elementów', lite: 'Tryb lekki (dla tabletów i słabszych urządzeń)',
     liteAuto: 'Automatycznie', liteOn: 'Zawsze włączony', liteOff: 'Wyłączony',
     banner: 'Pokazuj baner z życzeniami u góry', allDash: 'Używaj tych ustawień także na dashboardach bez tej karty',
@@ -85,7 +93,7 @@ const SE_DEFAULTS = () => ({
   language: 'auto',
   family: [],
   calendars: [],
-  effects: { halloween: true, christmas: true, newyear: true, valentine: true, easter: true, birthday: true },
+  effects: { halloween: true, christmas: true, newyear: true, valentine: true, easter: true, birthday: true, dayoff: true },
   christmas_start: '12-06',
   intensity: 1,
   lite: 'auto',
@@ -130,18 +138,19 @@ const SE_STYLE = `
 class SeasonalEffectsCard extends HTMLElement {
   constructor() { super(); this.attachShadow({ mode: 'open' }); }
   setConfig(config) { this._config = Object.assign(SE_DEFAULTS(), config || {}); this._render(); }
-  set hass(h) { const first = !this._hass; this._hass = h; if (first) this._render(); }
+  set hass(h) { const first = !this._hass; this._hass = h; if (this._settings) this._settings.hass = h; if (first) this._render(); }
   set editMode(v) { this._edit = v; this._render(); }
   get editMode() { return this._edit; }
   set preview(v) { this._preview = v; this._render(); }
   get preview() { return this._preview; }
-  connectedCallback() { this._timer = setInterval(() => this._visible() && this._render(), 5000); this._render(); }
+  connectedCallback() { this._timer = setInterval(() => this._visible() && !this._settingsMode() && this._render(), 5000); this._render(); }
+  _settingsMode() { return !!(this._config && this._config.show_settings && !this._editing()); }
   disconnectedCallback() { clearInterval(this._timer); }
+  _editing() { return !!(this._edit || this._preview || /[?&]edit=1/.test(location.search)); }
   _visible() {
-    const editing = this._edit || this._preview || /[?&]edit=1/.test(location.search);
-    return !!(editing || (this._config && this._config.show_status));
+    return !!(this._editing() || (this._config && (this._config.show_status || this._config.show_settings)));
   }
-  getCardSize() { return this._visible() ? 3 : 0; }
+  getCardSize() { return this._settingsMode() ? 12 : this._visible() ? 3 : 0; }
   getGridOptions() { return { columns: 12, min_columns: 6 }; }
   static getConfigElement() { return document.createElement('seasonal-effects-wizard'); }
   static getStubConfig() { return SE_DEFAULTS(); }
@@ -149,7 +158,14 @@ class SeasonalEffectsCard extends HTMLElement {
     if (!this.shadowRoot) return;
     const vis = this._visible();
     this.style.display = vis ? 'block' : 'none';
-    if (!vis) { this.shadowRoot.innerHTML = ''; return; }
+    if (!vis) { this.shadowRoot.innerHTML = ''; this._settings = null; return; }
+    if (this._settingsMode()) {
+      if (!this._settings) { this.shadowRoot.innerHTML = ''; this._settings = document.createElement('seasonal-effects-settings'); this.shadowRoot.appendChild(this._settings); }
+      if (this._hass) this._settings.hass = this._hass;
+      this._settings.setConfig(this._config);
+      return;
+    }
+    this._settings = null;
     const U = seUi(this._config, this._hass);
     const cur = (window.seasonalEffects && window.seasonalEffects.current()) || {};
     const ent = this._config.entity && this._hass && this._hass.states[this._config.entity];
@@ -239,7 +255,13 @@ class SeasonalEffectsWizard extends HTMLElement {
         <div class="field" style="margin-top:18px">${U.namedaySensor}
           <input type="text" list="se-sensors" data-k="nameday_entity" value="${seEsc(c.nameday_entity || '')}" placeholder="sensor.…">
           <datalist id="se-sensors">${sensors.map((e) => `<option value="${e.id}">${seEsc(e.name)}</option>`).join('')}</datalist>
-          <span class="hint">${U.namedayText}</span></div>`;
+          <span class="hint">${U.namedayText}</span></div>
+        <div class="field" style="margin-top:18px">${U.dayoffCals}</div>
+        ${cals.map((e) => `<label class="row"><input type="checkbox" data-dcal="${e.id}" ${(c.dayoff_calendars || []).includes(e.id) ? 'checked' : ''}>${seEsc(e.name)} <span class="hint">${e.id}</span></label>`).join('')}
+        <div class="field">${U.holidays}<select data-k="public_holidays">
+          <option value="" ${!c.public_holidays ? 'selected' : ''}>${U.langAuto}</option>
+          <option value="none" ${c.public_holidays === 'none' ? 'selected' : ''}>${U.holNone}</option>
+          <option value="pl" ${c.public_holidays === 'pl' ? 'selected' : ''}>${U.holPl}</option></select></div>`;
     } else if (s === 4) {
       const starts = ['11-15', '12-01', '12-06', '12-15', '12-20', '12-24'];
       body = `<h3>${U.effTitle}</h3>
@@ -252,7 +274,9 @@ class SeasonalEffectsWizard extends HTMLElement {
           <option value="off" ${c.lite === 'off' ? 'selected' : ''}>${U.liteOff}</option></select></div>
         <label class="row"><input type="checkbox" data-b="banner" ${c.banner !== false ? 'checked' : ''}>${U.banner}</label>
         <label class="row"><input type="checkbox" data-b="reduced" ${c.reduced_motion !== 'ignore' ? 'checked' : ''}>${U.reduced}</label>
-        <label class="row"><input type="checkbox" data-b="all_dashboards" ${c.all_dashboards ? 'checked' : ''}>${U.allDash}</label>`;
+        <label class="row"><input type="checkbox" data-b="all_dashboards" ${c.all_dashboards ? 'checked' : ''}>${U.allDash}</label>
+        <label class="row"><input type="checkbox" data-b="show_settings" ${c.show_settings ? 'checked' : ''}>${U.settingsPanel}</label>
+        <div class="field">${U.excludeViews}<input type="text" data-k="exclude_views" value="${seEsc((c.exclude_views || []).join(', '))}"></div>`;
     } else {
       const ch = window.seasonalEffects && window.seasonalEffects.choose(this._emitted());
       const on = SE_EFFECTS.filter((e) => c.effects[e] !== false);
@@ -291,7 +315,8 @@ class SeasonalEffectsWizard extends HTMLElement {
     R.querySelectorAll('[data-p]').forEach((b) => b.addEventListener('click', () => window.seasonalEffects && window.seasonalEffects.preview(b.dataset.p, 15)));
     R.querySelectorAll('[data-k]').forEach((inp) => inp.addEventListener(inp.type === 'range' ? 'input' : 'change', () => {
       const k = inp.dataset.k;
-      c[k] = k === 'intensity' ? Number(inp.value) : inp.value.trim();
+      c[k] = k === 'intensity' ? Number(inp.value) : k === 'exclude_views' ? inp.value.split(',').map((x) => x.trim()).filter(Boolean) : inp.value.trim();
+      if ((k === 'public_holidays' && !c[k]) || (k === 'exclude_views' && !c[k].length)) delete c[k];
       if (k === 'intensity') { const iv = R.querySelector('[data-iv]'); if (iv) iv.textContent = Math.round(c.intensity * 100) + '%'; }
       this._emit();
       if (k === 'language') this._render();
@@ -331,7 +356,16 @@ class SeasonalEffectsWizard extends HTMLElement {
       const set = new Set(c.calendars || []); if (cb.checked) set.add(cb.dataset.cal); else set.delete(cb.dataset.cal);
       c.calendars = [...set]; this._emit();
     }));
-    R.querySelectorAll('[data-eff]').forEach((cb) => cb.addEventListener('change', () => { c.effects[cb.dataset.eff] = cb.checked; this._emit(); }));
+    R.querySelectorAll('[data-dcal]').forEach((cb) => cb.addEventListener('change', () => {
+      const set = new Set(c.dayoff_calendars || []); if (cb.checked) set.add(cb.dataset.dcal); else set.delete(cb.dataset.dcal);
+      c.dayoff_calendars = [...set]; if (!c.dayoff_calendars.length) delete c.dayoff_calendars; this._emit();
+    }));
+    R.querySelectorAll('[data-eff]').forEach((cb) => cb.addEventListener('change', () => {
+      const e = cb.dataset.eff; c.effects[e] = cb.checked;
+      // the 1.1 per-occasion switch follows the wizard switch
+      for (const k of SE_OCCASIONS) if (SE_SCENE_OF[k] === e && c.occasions && c.occasions[k]) { c.occasions[k].on = cb.checked; }
+      this._emit();
+    }));
     R.querySelectorAll('[data-b]').forEach((cb) => cb.addEventListener('change', () => {
       const k = cb.dataset.b;
       if (k === 'reduced') c.reduced_motion = cb.checked ? 'respect' : 'ignore'; else c[k] = cb.checked;
@@ -347,7 +381,7 @@ if (!window.customCards.some((c) => c.type === 'seasonal-effects-card')) {
   window.customCards.push({
     type: 'seasonal-effects-card',
     name: 'Seasonal Effects',
-    description: 'Animated seasonal effects (Halloween, Christmas, New Year, Valentine\'s Day, Easter, family birthdays) with a setup wizard.',
+    description: 'Animated seasonal effects (Halloween, Christmas, New Year, Valentine\'s Day, Easter, birthdays, days off) with a setup wizard and per-occasion timing.',
     preview: false,
     documentationURL: 'https://github.com/bobby6robert/ha-seasonal-effects',
   });

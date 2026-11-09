@@ -20,7 +20,10 @@ Animated seasonal effects drawn on top of your Lovelace dashboards – **Hallowe
 - 🎆 **New Year's Eve** (31 Dec from 18:00 and 1 Jan): fireworks with trails (peony, willow, ring, crackle, heart) and a **10-second countdown to midnight**.
 - 💘 **Valentine's Day** (14 Feb): floating, pulsing hearts.
 - 🐣 **Easter** (Saturday – Monday, the date is calculated automatically): flowers, eggs and a hopping bunny.
-- 🎂 **Family occasions**: balloons and confetti with a greeting **with the person's name** on their birthday or name day. Can also read **birthdays and anniversaries from your calendars** and a **name-day sensor**.
+- 🎂 **Family occasions**: balloons and confetti with a greeting **with the person's name** on their birthday or name day. Can also read **birthdays and anniversaries from your calendars** and a **name-day sensor**. Several occasions on one day (e.g. a birthday and a name day) are shown together in **one greeting**.
+- 🌞 **Days off** *(new in 1.1)*: a calm sun, clouds and butterflies on public holidays (Poland built in) and on days marked as free in a calendar (“day off”, “holiday”, “break”, “wolny”, “ferie”, “przerwa”).
+- ⏱️ **Timing for every occasion** *(new in 1.1)*: separate settings for **tablets** and **phones/computers** – time window, how long the animation runs, how often it comes back, how long the greeting stays, plus **quiet hours** at night.
+- 🎚️ **Intensity per occasion** *(new in 1.1)*: number of elements, visibility, speed, and every part of a scene can be switched off (lightning, spider, sleigh, snowbank, countdown…).
 - 🧙 **Setup wizard** in the card editor: language, control helper (created for you with one click), family members, calendars, effects and performance.
 - 🎛️ Optional **dropdown helper** to switch the effect from any dashboard or automation: *Auto / Off / Halloween / Christmas / New Year / Valentine's Day / Easter / Birthday*.
 - 📱 **Light mode** for wall tablets and slow devices (detected automatically), adjustable number of elements, respects the *reduce motion* setting.
@@ -47,6 +50,17 @@ Animated seasonal effects drawn on top of your Lovelace dashboards – **Hallowe
 2. The **wizard** opens. Go through the steps and click **Save**.
 3. That's it – the effects now work on **every view of that dashboard**. The card itself is invisible (it only shows a small status box while you edit the dashboard). To change anything later, just edit the card again.
 
+### Settings panel *(new in 1.1)*
+
+Tick *“Show the settings panel on the dashboard”* in the wizard (or set `show_settings: true`). The card then shows a full settings panel on the dashboard:
+
+- one row per occasion (family birthdays, name days, other birthdays from calendars, New Year's Eve, Christmas, Easter, Valentine's Day, Halloween, day off) with an on/off switch and a **today** badge,
+- for **tablets** and for **phones and computers** separately: show / from / to / animation length (15 s … 1 h or *whole time*) / repeat (*once a day* or every 1–6 h),
+- greeting banner time, number of elements, visibility, speed and the parts of the scene,
+- quiet hours, *this device is treated as* (automatic / tablet / phone) and *start today's effects again*.
+
+Changes are saved into the card configuration with **Save** (administrators only), so every device gets them. Wall panels (kiosk apps such as Fully Kiosk) are detected as tablets automatically.
+
 > Want the effects on several dashboards? Add the card to each of them, or tick *“Also use these settings on dashboards without this card”* in the wizard.
 
 ![Wizard – family](images/wizard-family.png) ![Wizard – effects](images/wizard-effects.png)
@@ -56,7 +70,8 @@ Animated seasonal effects drawn on top of your Lovelace dashboards – **Hallowe
 Every effect can be previewed from the wizard or the status box. You can also run this in the browser console:
 
 ```js
-seasonalEffects.preview('christmas', 20)   // halloween | christmas | newyear | valentine | easter | birthday
+seasonalEffects.preview('christmas', 20)   // halloween | christmas | newyear | valentine | easter | birthday | dayoff
+seasonalEffects.preview('birthday_home')     // an occasion key uses its saved intensity and parts
 seasonalEffects.current()                   // what is shown now
 ```
 
@@ -76,6 +91,28 @@ family:
 calendars:                  # optional – events with "birthday"/"urodziny" or "anniversary"/"wedding"/"rocznica"/"ślub"
   - calendar.family
 nameday_entity: sensor.name_day   # optional – state = today's names, comma-separated
+dayoff_calendars:           # optional – all-day events with "day off"/"holiday"/"break"/"wolny"/"ferie"/"przerwa"
+  - calendar.school
+public_holidays: pl         # pl | none (default: pl for Polish, none otherwise)
+exclude_views: [night]      # view paths without effects
+show_settings: false        # show the settings panel on the dashboard
+quiet:                      # no effects at night
+  on: true
+  from: "22:00"
+  to: "06:30"
+occasions:                  # only what differs from the defaults (the settings panel writes this)
+  birthday_home:            # birthday_home | nameday | birthday_other | newyear | christmas | easter | valentine | halloween | dayoff
+    tablet: { on: true, from: "06:30", to: "22:00", duration: 0, repeat: 0 }   # duration s (0 = whole window), repeat h (0 = once a day)
+    phone:  { on: true, from: "06:30", to: "22:00", duration: 120, repeat: 3 }
+    banner: 20              # seconds, 0 = no banner, -1 = as long as the animation
+    count: 1                # 0.2 – 1.5
+    opacity: 1              # 0.1 – 1
+    speed: 1                # 0.2 – 2
+    extras: { confetti: false }
+  dayoff:
+    chip_from: "06:30"      # dashboards can show a "day off" badge only in this window: seasonalEffects.chipVisible()
+    chip_minutes: 90        # 0 = hidden, 1440 = all day
+    weekends: false
 effects:
   halloween: true
   christmas: true
@@ -100,7 +137,7 @@ The helper's options can be in English or Polish:
 |---|---|
 | `Auto` / `Automatycznie` | choose by date and family occasions |
 | `Off` / `Wyłączony` | no effects |
-| `Halloween`, `Christmas`/`Święta`, `New Year`/`Sylwester`, `Valentine's Day`/`Walentynki`, `Easter`/`Wielkanoc`, `Birthday`/`Urodziny` | always show that effect |
+| `Halloween`, `Christmas`/`Święta`, `New Year`/`Sylwester`, `Valentine's Day`/`Walentynki`, `Easter`/`Wielkanoc`, `Birthday`/`Urodziny`, `Day off`/`Dzień wolny` | always show that effect |
 
 Example – turn effects off at night:
 
@@ -141,3 +178,5 @@ Animowane **efekty sezonowe** nad dashboardem Home Assistant: **Halloween, Świ�
 **Pomocnik** (lista wyboru) pozwala przełączać efekty z dowolnego miejsca: *Automatycznie / Wyłączony / Halloween / Święta / Sylwester / Walentynki / Wielkanoc / Urodziny*.
 
 Na tabletach ściennych efekty same przechodzą w **tryb lekki**. Warstwa efektów nigdy nie blokuje dotyku.
+
+**Nowe w 1.1:** efekt **dnia wolnego** (święta państwowe i dni wolne z kalendarza), **jeden baner** dla kilku okazji jednego dnia oraz **panel ustawień na dashboardzie** (opcja *„Pokazuj panel ustawień na dashboardzie”*): dla każdej okazji osobno dla tabletu i telefonów – godziny, czas animacji, powtarzanie, czas banera, liczba elementów, widoczność, prędkość i poszczególne elementy efektu, a do tego cisza nocna.
