@@ -1,6 +1,6 @@
 # ✨ Seasonal Effects for Home Assistant
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories)
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories) [![Validate](https://github.com/bobby6robert/ha-seasonal-effects/actions/workflows/validate.yml/badge.svg)](https://github.com/bobby6robert/ha-seasonal-effects/actions/workflows/validate.yml)
 ![version](https://img.shields.io/github/v/release/bobby6robert/ha-seasonal-effects)
 
 Animated seasonal effects drawn on top of your Lovelace dashboards – **Halloween, Christmas, New Year's Eve, Valentine's Day, Easter** and **your family's birthdays, name days and anniversaries**. Everything is set up with a friendly **step-by-step wizard** – no YAML needed.
